@@ -79,6 +79,7 @@ void Error_Handler(void);
 #define ADC_SYNC_GPIO_Port GPIOB
 #define ADC_DRDY_Pin GPIO_PIN_6
 #define ADC_DRDY_GPIO_Port GPIOC
+#define ADC_DRDY_EXTI_IRQn EXTI9_5_IRQn
 #define ETH_TCPCS_Pin GPIO_PIN_15
 #define ETH_TCPCS_GPIO_Port GPIOA
 #define ETH_RSTI_Pin GPIO_PIN_3

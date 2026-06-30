@@ -46,3 +46,6 @@ opm_f405\main.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/mpu_wrappers
 opm_f405\main.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/task.h
 opm_f405\main.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/list.h
 opm_f405\main.o: ../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2/cmsis_os2.h
+opm_f405\main.o: ../Tasks/ADC_Task.h
+opm_f405\main.o: ../ADC_Driver/Inc/ADC_Types.h
+opm_f405\main.o: ../ADC_Driver/Inc/ADC_Config.h

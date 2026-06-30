@@ -36,6 +36,10 @@
 "opm_f405\cmsis_os2.o"
 "opm_f405\heap_4.o"
 "opm_f405\port.o"
+"opm_f405\adc_buffer.o"
+"opm_f405\adc_driver.o"
+"opm_f405\adc_unpack.o"
+"opm_f405\adc_task.o"
 --strict --scatter "OPM_F405\OPM_F405.sct"
 --summary_stderr --info summarysizes --map --load_addr_map_info --xref --callgraph --symbols
 --info sizes --info totals --info unused --info veneers
