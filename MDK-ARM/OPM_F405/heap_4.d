@@ -1,0 +1,13 @@
+opm_f405\heap_4.o: ../Middlewares/Third_Party/FreeRTOS/Source/portable/MemMang/heap_4.c
+opm_f405\heap_4.o: D:\robomaster\keil\keil\ARM\ARMCC\Bin\..\include\stdlib.h
+opm_f405\heap_4.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/FreeRTOS.h
+opm_f405\heap_4.o: D:\robomaster\keil\keil\ARM\ARMCC\Bin\..\include\stddef.h
+opm_f405\heap_4.o: D:\robomaster\keil\keil\ARM\ARMCC\Bin\..\include\stdint.h
+opm_f405\heap_4.o: ../Core/Inc/FreeRTOSConfig.h
+opm_f405\heap_4.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/projdefs.h
+opm_f405\heap_4.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/portable.h
+opm_f405\heap_4.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/deprecated_definitions.h
+opm_f405\heap_4.o: ../Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F/portmacro.h
+opm_f405\heap_4.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/mpu_wrappers.h
+opm_f405\heap_4.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/task.h
+opm_f405\heap_4.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/list.h
