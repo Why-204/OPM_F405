@@ -10,7 +10,6 @@ typedef enum
     ADC_STATUS_ERROR,
     ADC_STATUS_INVALID_PARAM,
     ADC_STATUS_BUSY,
-    ADC_STATUS_NOT_READY,
     ADC_STATUS_EMPTY,
     ADC_STATUS_OVERFLOW
 } ADC_Status;
@@ -49,8 +48,8 @@ typedef struct
     uint32_t ring_overflow_count;
     uint32_t spi_busy_count;
     uint32_t spi_error_count;
-    uint32_t spi_tx_dma_missing_count;
     uint32_t missed_drdy_count;
+    uint32_t timing_discard_count;
     uint32_t discarded_frames;
     uint32_t last_hal_status;
     uint32_t last_spi_state;

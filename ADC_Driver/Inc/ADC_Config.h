@@ -21,8 +21,10 @@
 #define ADC_LOG_REF_VOLTAGE_V              1.5f
 #define ADC_LOG_REF_CURRENT_A              1.0e-7f
 #define ADC_LOG_SLOPE_V_PER_DEC            0.4f
+#define ADC_ENABLE_LOG_CURRENT_CONVERSION  0U
 
 #define ADC_TASK_PERIOD_MS                 10U
+#define ADC_UNPACK_MAX_FRAMES_PER_WAKE     4U
 #define ADC_UNPACK_THREAD_STACK_BYTES      2048U
 #define ADC_TASK_THREAD_STACK_BYTES        1536U
 

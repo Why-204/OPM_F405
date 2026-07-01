@@ -15,6 +15,8 @@ volatile ADC_TaskState adc_task_state = ADC_TASK_STATE_STOPPED;
 volatile ADC_Status adc_task_last_status = ADC_STATUS_ERROR;
 volatile uint32_t adc_task_init_attempts;
 volatile uint32_t adc_task_alive_tick;
+volatile uint32_t adc_task_store_cnt;
+volatile uint32_t adc_task_last_sequence;
 
 static osThreadId_t s_adc_task_thread;
 
@@ -67,6 +69,8 @@ static void adc_task_store_frame(const ADC_FrameData *frame)
     memcpy(&adc_latest_frame, frame, sizeof(adc_latest_frame));
     memcpy(adc_ch, frame->channel, sizeof(adc_ch));
     adc_data_valid = frame->valid;
+    adc_task_store_cnt++;
+    adc_task_last_sequence = frame->sequence;
     if (primask == 0U)
     {
         __enable_irq();

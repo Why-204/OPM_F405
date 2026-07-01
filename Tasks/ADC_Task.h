@@ -28,6 +28,8 @@ extern volatile ADC_TaskState adc_task_state;
 extern volatile ADC_Status adc_task_last_status;
 extern volatile uint32_t adc_task_init_attempts;
 extern volatile uint32_t adc_task_alive_tick;
+extern volatile uint32_t adc_task_store_cnt;
+extern volatile uint32_t adc_task_last_sequence;
 
 void adc_task_init(void);
 uint8_t adc_task_get_latest(ADC_FrameData *frame);
