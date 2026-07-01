@@ -1,8 +1,8 @@
 opm_f405\stream_buffer.o: ../Middlewares/Third_Party/FreeRTOS/Source/stream_buffer.c
-opm_f405\stream_buffer.o: D:\robomaster\keil\keil\ARM\ARMCC\Bin\..\include\stdint.h
-opm_f405\stream_buffer.o: D:\robomaster\keil\keil\ARM\ARMCC\Bin\..\include\string.h
+opm_f405\stream_buffer.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stdint.h
+opm_f405\stream_buffer.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\string.h
 opm_f405\stream_buffer.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/FreeRTOS.h
-opm_f405\stream_buffer.o: D:\robomaster\keil\keil\ARM\ARMCC\Bin\..\include\stddef.h
+opm_f405\stream_buffer.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stddef.h
 opm_f405\stream_buffer.o: ../Core/Inc/FreeRTOSConfig.h
 opm_f405\stream_buffer.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/projdefs.h
 opm_f405\stream_buffer.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/portable.h

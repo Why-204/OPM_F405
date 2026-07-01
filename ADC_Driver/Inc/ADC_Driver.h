@@ -27,6 +27,10 @@ extern volatile uint32_t adc_last_dma_ndtr;
 extern volatile uint32_t adc_last_spi_sr;
 extern volatile uint32_t adc_last_spi_cr1;
 extern volatile uint32_t adc_last_spi_cr2;
+extern volatile uint32_t adc_drdy_period_cycles;
+extern volatile uint32_t adc_dma_duration_cycles;
+extern volatile uint32_t adc_overlap_dma_ndtr;
+extern volatile uint32_t adc_system_core_clock_hz;
 
 ADC_Status ADC_Driver_Init(SPI_HandleTypeDef *hspi);
 ADC_Status ADC_Driver_Start(void);
@@ -39,5 +43,7 @@ void ADC_Driver_GetStats(ADC_DriverStats *stats);
 uint8_t ADC_Driver_IsRunning(void);
 
 void ADC_Driver_EXTI_Callback(uint16_t GPIO_Pin);
+void ADC_Driver_DMA_RX_IRQHandler(void);
+void ADC_Driver_DeferredIRQHandler(void);
 
 #endif /* ADC_DRIVER_H */

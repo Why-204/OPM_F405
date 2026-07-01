@@ -21,7 +21,7 @@ ADC_Driver/
     ADC_Unpack.h      Raw frame unpack and conversion thread interface
   Src/
     ADC_Buffer.c      Lock-protected raw frame ring buffer
-    ADC_Driver.c      ADS1278 control, SPI2 RX-only DMA receive, HAL callbacks
+    ADC_Driver.c      ADS1278 control, SPI2 full-duplex DMA receive, HAL callbacks
     ADC_Unpack.c      24-bit unpack, voltage conversion, test current conversion
 ```
 
@@ -38,8 +38,8 @@ ADC_Driver/
 
 1. `main.c` calls `adc_task_init()` once after `osKernelInitialize()` and before `osKernelStart()`.
 2. `ADC_Task` starts the unpack thread, initializes `ADC_Driver` with `hspi2`, enables all ADC channels, and starts acquisition.
-3. On every `ADC_DRDY#` falling edge, `ADC_Driver_EXTI_Callback()` starts one RX-only SPI2 DMA transfer for exactly 24 bytes. The driver enables RX DMA before enabling SPI so the first SCLK byte is not lost.
-4. The SPI2 RX DMA complete callback records timing-overlap diagnostics, consumes startup discard frames, then pushes valid raw frames into the ring buffer and notifies the unpack thread.
+3. On every `ADC_DRDY#` falling edge, `ADC_Driver_EXTI_Callback()` directly reloads the preconfigured dummy-TX and RX DMA registers for exactly 24 bytes. This avoids the per-frame HAL DMA setup latency, and TX DMA limits each read to exactly 192 SCLK edges. The unused MOSI signal is not routed to a GPIO because `PB15` remains the ADC `SYNC` output.
+4. The priority-4 SPI2 RX DMA callback drops any frame that overlapped a later `DRDY`, consumes startup discard frames, and pushes valid raw frames into the ring buffer. It then pends the priority-5 SPI2 TX DMA IRQ, which safely notifies the unpack thread through the RTOS semaphore.
 5. `ADC_Unpack` converts each 3-byte signed 24-bit code into voltage and then into a test current value.
 6. `ADC_Task` periodically copies the latest frame into `adc_latest_frame` and `adc_ch[8]`.
 
@@ -53,7 +53,7 @@ Useful debugger variables:
 - `adc_driver_stats.running`: driver acquisition state.
 - `adc_driver_stats.drdy_count`: increments on `ADC_DRDY#` EXTI callbacks.
 - `adc_driver_stats.dma_complete_count`: increments after SPI2 DMA completes a raw frame.
-- `adc_driver_stats.timing_discard_count`: increments when a new `ADC_DRDY#` overlaps a 24-byte read. The counter is diagnostic only; frames are no longer dropped by this condition.
+- `adc_driver_stats.timing_discard_count`: increments when a new `ADC_DRDY#` overlaps a 24-byte read. Every overlapped frame is dropped before unpacking.
 - `adc_data_valid`: becomes non-zero only after startup discard frames are skipped and at least one frame is unpacked.
 
 Direct watch symbols are also exported for DMA bring-up:
@@ -77,13 +77,17 @@ Direct watch symbols are also exported for DMA bring-up:
 - `adc_last_spi_sr`
 - `adc_last_spi_cr1`
 - `adc_last_spi_cr2`
+- `adc_drdy_period_cycles`
+- `adc_dma_duration_cycles`
+- `adc_overlap_dma_ndtr`
+- `adc_system_core_clock_hz`
 - `adc_unpack_nonzero_channel_mask`
 - `adc_unpack_last_raw_bytes`
 - `adc_unpack_last_raw_code`
 - `adc_task_store_cnt`
 - `adc_task_last_sequence`
 
-If `adc_timing_discard_cnt` grows during a static DC input test, the SPI read is crossing the next ADC data-ready edge. With the current `SPI2` clock of 13.5 Mbit/s, a 24-byte single-pin TDM frame takes about 14.2 us to read. That is sufficient for ADS1278 high-resolution or low-power mode at 27 MHz MCLK, but not sufficient for high-speed mode at 27 MHz MCLK. This counter should be treated as a warning that channel values may be frame-boundary sensitive.
+The ADC EXTI and RX DMA completion run at priority 4 so acquisition is not delayed by FreeRTOS priority-5 critical sections. The RTOS semaphore release is deferred to the priority-5 TX DMA IRQ. With the current `SPI2` clock of 13.5 Mbit/s, a 24-byte single-pin TDM frame takes about 14.2 us to read. This is sufficient for ADS1278 high-resolution or low-power mode at 27 MHz MCLK, but not for high-speed mode at 27 MHz MCLK.
 
 ## Test Conversion
 
