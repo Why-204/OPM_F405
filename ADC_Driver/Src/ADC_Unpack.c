@@ -58,6 +58,12 @@ static float adc_unpack_current_from_voltage(float voltage_v)
 #endif
 }
 
+static float adc_unpack_voltage_from_adc_diff(float adc_diff_v)
+{
+    return ADC_FRONTEND_INPUT_AT_ZERO_DIFF_V +
+           ((adc_diff_v - ADC_FRONTEND_ADC_DIFF_ZERO_V) * ADC_FRONTEND_INPUT_V_PER_ADC_DIFF_V);
+}
+
 static void adc_unpack_convert(const ADC_RawFrame *raw, ADC_FrameData *frame)
 {
     uint32_t ch;
@@ -74,7 +80,7 @@ static void adc_unpack_convert(const ADC_RawFrame *raw, ADC_FrameData *frame)
         const uint8_t *src = &raw->data[ch * ADC_BYTES_PER_CHANNEL];
         int32_t code = adc_unpack_s24(src);
         float adc_diff_v = ((float)code * ADC_VREF_V) / ADC_CODE_FULL_SCALE;
-        float voltage_v = adc_diff_v + ADC_FRONTEND_VOLTAGE_OFFSET_V;
+        float voltage_v = adc_unpack_voltage_from_adc_diff(adc_diff_v);
 
         frame->channel[ch].raw_code = code;
         frame->channel[ch].adc_diff_v = adc_diff_v;

@@ -58,42 +58,52 @@ Useful debugger variables:
 
 Direct watch symbols are also exported for DMA bring-up:
 
-- `adc_drdy_cnt`
-- `adc_dma_start_cnt`
-- `adc_dma_complete_cnt`
-- `adc_spi_busy_cnt`
-- `adc_spi_error_cnt`
-- `adc_missed_drdy_cnt`
-- `adc_timing_discard_cnt`
-- `adc_discarded_frame_cnt`
-- `adc_discard_remaining_cnt`
-- `adc_frame_pushed_cnt`
-- `adc_frame_popped_cnt`
-- `adc_last_hal_status`
-- `adc_last_spi_state`
-- `adc_last_spi_error`
-- `adc_last_dma_error`
-- `adc_last_dma_ndtr`
-- `adc_last_spi_sr`
-- `adc_last_spi_cr1`
-- `adc_last_spi_cr2`
-- `adc_unpack_nonzero_channel_mask`
-- `adc_unpack_last_raw_bytes`
-- `adc_unpack_last_raw_code`
-- `adc_task_store_cnt`
-- `adc_task_last_sequence`
+| Symbol | Meaning |
+| --- | --- |
+| `adc_drdy_cnt` | Counts ADC `DRDY#` falling-edge callbacks. |
+| `adc_dma_start_cnt` | Counts SPI2 RX DMA frame-read starts. |
+| `adc_dma_complete_cnt` | Counts completed 24-byte SPI2 RX DMA reads. |
+| `adc_spi_busy_cnt` | Counts `DRDY#` events that arrived while the previous SPI DMA read was still busy. |
+| `adc_missed_drdy_cnt` | Counts `DRDY#` events that could not start a new read because DMA was busy. |
+| `adc_timing_discard_cnt` | Timing-overlap warning counter. It increments when `DRDY#` overlaps a 24-byte read; it is diagnostic and does not currently drop the frame. |
+| `adc_discard_remaining_cnt` | Startup discard frames still remaining after `SYNC#`. |
+| `adc_discarded_frame_cnt` | Frames intentionally discarded during startup settling. |
+| `adc_frame_pushed_cnt` | Raw frames pushed into the unpack ring buffer. |
+| `adc_frame_popped_cnt` | Raw frames popped by the unpack thread. |
+| `adc_last_dma_ndtr` | Last SPI2 RX DMA remaining-byte counter. |
+| `adc_last_hal_status` | Last HAL status captured by the ADC driver. |
+| `adc_last_spi_state` | Last SPI2 HAL state captured by the ADC driver. |
+| `adc_last_spi_error` | Last SPI2 HAL error code. |
+| `adc_last_dma_error` | Last SPI2 RX DMA error code. |
+| `adc_last_spi_sr` | Last SPI2 status register snapshot. |
+| `adc_last_spi_cr1` | Last SPI2 CR1 register snapshot. |
+| `adc_last_spi_cr2` | Last SPI2 CR2 register snapshot. |
+| `adc_unpack_nonzero_channel_mask` | Bit mask of channels whose latest 3 raw bytes were non-zero. |
+| `adc_unpack_last_raw_bytes` | Last 24 raw bytes received from ADS1278. |
+| `adc_unpack_last_raw_code` | Last signed 24-bit raw code per channel. |
+| `adc_unpack_last_adc_diff_v` | Last ADC differential voltage per channel. |
+| `adc_unpack_last_voltage_v` | Last converted input voltage per channel. |
+| `adc_task_store_cnt` | Counts latest-frame copies into `adc_ch[]`. |
+| `adc_task_last_sequence` | Sequence number of the latest stored frame. |
 
-If `adc_timing_discard_cnt` grows during a static DC input test, the SPI read is crossing the next ADC data-ready edge. With the current `SPI2` clock of 13.5 Mbit/s, a 24-byte single-pin TDM frame takes about 14.2 us to read. That is sufficient for ADS1278 high-resolution or low-power mode at 27 MHz MCLK, but not sufficient for high-speed mode at 27 MHz MCLK. This counter should be treated as a warning that channel values may be frame-boundary sensitive.
+If `adc_timing_discard_cnt` grows during a static DC input test, the SPI read is crossing the next ADC data-ready edge. With the current `SPI2` clock of 3.375 Mbit/s, a 24-byte single-pin TDM frame takes about 56.9 us to read. That is too slow for ADS1278 high-resolution mode at 27 MHz MCLK, but can still produce stable readings for static DC tests. This counter should be treated as a warning that channel values may be frame-boundary sensitive.
+
+Observed timing hypothesis:
+
+- In high-resolution mode, ADS1278 at 27 MHz MCLK produces a new frame every about 18.96 us.
+- With `SPI2` prescaler 2, a 24-byte TDM read takes about 14.2 us. The total frame-transfer time is theoretically short enough, but practical margin is small after EXTI latency, DMA setup, SPI enable delay, and digital-isolator timing. The observed channel-2-and-later misalignment is suspected to be caused by insufficient real timing margin in this fast-read path.
+- With larger SPI prescalers in high-resolution mode, the 24-byte read crosses the next `DRDY#`. Prescaler 4 takes about 28.4 us and prescaler 8 takes about 56.9 us, both longer than the 18.96 us high-resolution frame period.
+- Low-speed mode increases the ADS1278 frame period to about 94.8 us at 27 MHz MCLK, allowing prescaler 8 to read a full 24-byte frame with timing margin.
 
 ## Test Conversion
 
 ```text
 adc_diff_v = raw_code * 2.5 / 8388608
-voltage_v  = adc_diff_v + 1.5
+voltage_v  = ADC_FRONTEND_INPUT_AT_ZERO_DIFF_V + (adc_diff_v - ADC_FRONTEND_ADC_DIFF_ZERO_V) * ADC_FRONTEND_INPUT_V_PER_ADC_DIFF_V
 current_a  = 100 nA * 10 ^ ((voltage_v - 1.5) / 0.4)
 ```
 
-The `0.4 V/dec` slope is the current test setting. Future photodiode calibration should replace only the conversion/config layer, not the SPI/DMA capture layer.
+`ADC_FRONTEND_INPUT_V_PER_ADC_DIFF_V` defaults to `-1.0`, matching the measured front-end relationship `input_voltage ~= 2.5V - adc_diff_v` when `adc_diff_v = OUT_P - OUT_N`. The `0.4 V/dec` slope is the current test setting. Future photodiode calibration should replace only the conversion/config layer, not the SPI/DMA capture layer.
 
 ## Integration Notes
 
