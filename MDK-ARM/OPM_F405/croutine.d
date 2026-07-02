@@ -1,7 +1,7 @@
 opm_f405\croutine.o: ../Middlewares/Third_Party/FreeRTOS/Source/croutine.c
 opm_f405\croutine.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/FreeRTOS.h
-opm_f405\croutine.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stddef.h
-opm_f405\croutine.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stdint.h
+opm_f405\croutine.o: D:\robomaster\keil\keil\ARM\ARMCC\Bin\..\include\stddef.h
+opm_f405\croutine.o: D:\robomaster\keil\keil\ARM\ARMCC\Bin\..\include\stdint.h
 opm_f405\croutine.o: ../Core/Inc/FreeRTOSConfig.h
 opm_f405\croutine.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/projdefs.h
 opm_f405\croutine.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/portable.h

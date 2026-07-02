@@ -1,8 +1,8 @@
 opm_f405\heap_4.o: ../Middlewares/Third_Party/FreeRTOS/Source/portable/MemMang/heap_4.c
-opm_f405\heap_4.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stdlib.h
+opm_f405\heap_4.o: D:\robomaster\keil\keil\ARM\ARMCC\Bin\..\include\stdlib.h
 opm_f405\heap_4.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/FreeRTOS.h
-opm_f405\heap_4.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stddef.h
-opm_f405\heap_4.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stdint.h
+opm_f405\heap_4.o: D:\robomaster\keil\keil\ARM\ARMCC\Bin\..\include\stddef.h
+opm_f405\heap_4.o: D:\robomaster\keil\keil\ARM\ARMCC\Bin\..\include\stdint.h
 opm_f405\heap_4.o: ../Core/Inc/FreeRTOSConfig.h
 opm_f405\heap_4.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/projdefs.h
 opm_f405\heap_4.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/portable.h
