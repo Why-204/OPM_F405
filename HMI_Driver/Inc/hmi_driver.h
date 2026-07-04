@@ -23,9 +23,9 @@
 /*  Protocol configuration                                           */
 /* ================================================================ */
 #define FIRMWARE_VER 921 /* must match the screen firmware version */
-#define CRC16_ENABLE 0	 /* set 1 to enable CRC16 (VisualTFT option) */
+#define CRC16_ENABLE 0   /* set 1 to enable CRC16 (VisualTFT option) */
 #define CMD_MAX_SIZE 256 /* max single frame payload (including header+tail) */
-#define SD_FILE_EN 0	 /* SD-card file commands disabled by default */
+#define SD_FILE_EN 0     /* SD-card file commands disabled by default */
 
 /* ================================================================ */
 /*  Compatibility typedefs (preserved for legacy callers)            */
@@ -81,7 +81,7 @@ void DisArea_Image(uint16 x, uint16 y, uint16 image_id, uint8 masken);
 
 /** HMI command. */
 void DisCut_Image(uint16 x, uint16 y, uint16 image_id, uint16 image_x, uint16 image_y,
-				  uint16 image_l, uint16 image_w, uint8 masken);
+                  uint16 image_l, uint16 image_w, uint8 masken);
 
 /** HMI command. */
 void DisFlashImage(uint16 x, uint16 y, uint16 flashimage_id, uint8 enable, uint8 playnum);
@@ -351,12 +351,12 @@ void HistoryGraph_SetTimeZoom(uint16 screen_id, uint16 control_id, uint16 zoom, 
 /** HMI command. */
 void SD_IsInsert(void);
 
-#define FA_READ 0x01		  // �ɶ�ȡ
-#define FA_WRITE 0x02		  // ��д��
-#define FA_CREATE_NEW 0x04	  // �������ļ�������ļ��Ѿ����ڣ��򷵻�ʧ��
+#define FA_READ 0x01          // �ɶ�ȡ
+#define FA_WRITE 0x02         // ��д��
+#define FA_CREATE_NEW 0x04    // �������ļ�������ļ��Ѿ����ڣ��򷵻�ʧ��
 #define FA_CREATE_ALWAYS 0x08 // �������ļ�������ļ��Ѿ����ڣ��򸲸�
 #define FA_OPEN_EXISTING 0x00 // ���ļ�������ļ������ڣ��򷵻�ʧ��
-#define FA_OPEN_ALWAYS 0x10	  // ���ļ�������ļ������ڣ��򴴽����ļ�
+#define FA_OPEN_ALWAYS 0x10   // ���ļ�������ļ������ڣ��򴴽����ļ�
 
 /** HMI command. */
 void SD_CreateFile(uint8 *filename, uint8 mode);

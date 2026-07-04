@@ -23,6 +23,8 @@
 /*  Static globals                                                   */
 /* ================================================================ */
 
+extern UART_HandleTypeDef hmi_huart;
+
 /* ---- RX DMA buffer (CIRCULAR, DMA writes continuously) ---------- */
 static uint8_t rx_dma_buf[HMI_RX_DMA_BUF_SIZE];
 static uint16_t dma_rd_pos; /* last consumed NDTR-based position */
@@ -32,22 +34,38 @@ static HmiRxRingBuf rx_ring;
 
 /* ---- Event queue ------------------------------------------------- */
 static HmiEventQueue evt_queue;
-static osMutexId evt_mutex; /* protect consumer access to evt_queue */
+static osMutexId_t evt_mutex; /* protect consumer access to evt_queue */
 
-/* ---- TX software queue ------------------------------------------- */
-static uint8_t tx_queue[HMI_TX_BUF_SIZE];
-static uint16_t tx_head, tx_tail;
-static bool tx_busy;
+/* ---- TX DMA synchronization -------------------------------------- */
+static osMutexId_t tx_mutex;
+static osThreadId_t tx_wait_thread;
 
 /* ---- RTOS objects ------------------------------------------------ */
-osThreadId unpack_thread_id;
+static osThreadId_t unpack_thread_id;
 #define HMI_UART_RX_RDY 0x0001U /* event flag: new DMA data ready */
+#define HMI_UART_TX_DONE 0x0002U
+#define HMI_UART_TX_ERROR 0x0004U
+#define HMI_UART_TX_FLAGS (HMI_UART_TX_DONE | HMI_UART_TX_ERROR)
+#define HMI_UART_TX_TIMEOUT_MS 1000U
 
 /* ================================================================ */
 /*  Forward declarations                                             */
 /* ================================================================ */
-static void hmi_uart_tx_next_byte(void);
-void hmi_uart_unpack_task(void const *arg);
+static void hmi_uart_unpack_task(void *arg);
+
+static const osMutexAttr_t hmi_evt_mutex_attr = {
+    .name = "hmi_evt_mutex",
+};
+
+static const osMutexAttr_t hmi_tx_mutex_attr = {
+    .name = "hmi_tx_mutex",
+};
+
+static const osThreadAttr_t hmi_unpack_thread_attr = {
+    .name = "hmi_unpack",
+    .stack_size = 512U,
+    .priority = (osPriority_t)osPriorityNormal,
+};
 
 /* ================================================================ */
 /*  Event queue helpers (mutex-protected)                            */
@@ -56,8 +74,10 @@ void hmi_uart_unpack_task(void const *arg);
 bool hmi_event_push(const HmiEvent *evt)
 {
     if (evt_mutex == NULL)
+    {
         return false;
-    osMutexWait(evt_mutex, osWaitForever);
+    }
+    osMutexAcquire(evt_mutex, osWaitForever);
     uint16_t next = (evt_queue.head + 1U) % HMI_EVENT_QUEUE_SIZE;
     bool ok = false;
     if (next != evt_queue.tail)
@@ -73,8 +93,10 @@ bool hmi_event_push(const HmiEvent *evt)
 bool hmi_event_pop(HmiEvent *evt)
 {
     if (evt_mutex == NULL)
+    {
         return false;
-    osMutexWait(evt_mutex, osWaitForever);
+    }
+    osMutexAcquire(evt_mutex, osWaitForever);
     bool ok = false;
     if (evt_queue.tail != evt_queue.head)
     {
@@ -89,8 +111,10 @@ bool hmi_event_pop(HmiEvent *evt)
 uint16_t hmi_event_available(void)
 {
     if (evt_mutex == NULL)
+    {
         return 0;
-    osMutexWait(evt_mutex, osWaitForever);
+    }
+    osMutexAcquire(evt_mutex, osWaitForever);
     uint16_t n;
     if (evt_queue.head >= evt_queue.tail)
         n = evt_queue.head - evt_queue.tail;
@@ -109,10 +133,8 @@ void hmi_uart_init(void)
     /* zero-initialise all static state */
     memset(&rx_ring, 0, sizeof(rx_ring));
     memset(&evt_queue, 0, sizeof(evt_queue));
-    memset(tx_queue, 0, sizeof(tx_queue));
-    tx_head = tx_tail = 0;
-    tx_busy = false;
     dma_rd_pos = 0U;
+    tx_wait_thread = NULL;
 
     /* ── Convert RX DMA to CIRCULAR mode for gapless reception ──
      * CubeMX configured NORMAL; we override here so DMA never
@@ -185,7 +207,7 @@ void hmi_uart_idle_isr(UART_HandleTypeDef *huart)
     /* Wake unpack thread */
     if (len > 0 && unpack_thread_id != NULL)
     {
-        osSignalSet(unpack_thread_id, HMI_UART_RX_RDY);
+        osThreadFlagsSet(unpack_thread_id, HMI_UART_RX_RDY);
     }
 }
 
@@ -193,73 +215,76 @@ void hmi_uart_idle_isr(UART_HandleTypeDef *huart)
 /*  TX — interrupt-driven, non-blocking                              */
 /* ================================================================ */
 
-bool hmi_uart_send(const uint8_t *data, uint16_t len)
+bool hmi_uart_send(const uint8_t *data, uint32_t len)
 {
-    if (len == 0)
+    if (len == 0U)
         return true;
+    if (data == NULL || tx_mutex == NULL)
+        return false;
+    if (osKernelGetState() != osKernelRunning)
+        return false;
 
-    /* Enqueue into TX software queue */
-    __disable_irq();
-    for (uint16_t i = 0; i < len; i++)
+    if (osMutexAcquire(tx_mutex, HMI_UART_TX_TIMEOUT_MS) != osOK)
+        return false;
+
+    bool ok = true;
+    uint32_t offset = 0U;
+    tx_wait_thread = osThreadGetId();
+
+    if (tx_wait_thread == NULL)
     {
-        uint16_t next = (tx_head + 1U) % HMI_TX_BUF_SIZE;
-        if (next == tx_tail)
+        ok = false;
+    }
+
+    while (ok && offset < len)
+    {
+        uint32_t remain = len - offset;
+        uint16_t chunk = (remain > 0xFFFFUL) ? 0xFFFFU : (uint16_t)remain;
+        uint32_t flags;
+
+        (void)osThreadFlagsClear(HMI_UART_TX_FLAGS);
+
+        if (HAL_UART_Transmit_DMA(&hmi_huart, (uint8_t *)&data[offset], chunk) != HAL_OK)
         {
-            __enable_irq();
-            return false; /* TX queue full */
+            ok = false;
+            break;
         }
-        tx_queue[tx_head] = data[i];
-        tx_head = next;
-    }
-    __enable_irq();
 
-    /* Kick off TX if not already transmitting */
-    if (!tx_busy)
-    {
-        hmi_uart_tx_next_byte();
+        flags = osThreadFlagsWait(HMI_UART_TX_FLAGS, osFlagsWaitAny, HMI_UART_TX_TIMEOUT_MS);
+        if ((flags & osFlagsError) != 0U || (flags & HMI_UART_TX_ERROR) != 0U)
+        {
+            (void)HAL_UART_AbortTransmit(&hmi_huart);
+            ok = false;
+            break;
+        }
+
+        offset += chunk;
     }
-    return true;
+
+    tx_wait_thread = NULL;
+    osMutexRelease(tx_mutex);
+    return ok;
 }
 
-/*
-bool hmi_uart_send_blocking(const uint8_t *data, uint16_t len, uint32_t timeout)
-{
-    if (len == 0)
-        return true;
-    return (HAL_UART_Transmit(&hmi_huart, (uint8_t *)data, len, timeout) == HAL_OK);
-}
-*/
-
-static void hmi_uart_tx_next_byte(void)
-{
-    if (tx_tail == tx_head)
-    {
-        tx_busy = false;
-        __HAL_UART_DISABLE_IT(&hmi_huart, UART_IT_TXE);
-        return;
-    }
-
-    /* Only kick off a new IT transfer when the UART is globally
-     * ready.  If a previous IT transfer is still flushing the
-     * last byte (TXE not yet serviced) the HAL will return BUSY
-     * and TXE ISR will chain to us via TxCpltCallback later. */
-    if (hmi_huart.gState != HAL_UART_STATE_READY)
-        return;
-
-    tx_busy = true;
-    if (HAL_UART_Transmit_IT(&hmi_huart, &tx_queue[tx_tail], 1) != HAL_OK)
-    {
-        tx_busy = false;
-    }
-}
-
-/** Called by HAL after each TXE byte completes (weak override) */
+/** Called by HAL after each TX DMA transfer completes (weak override) */
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 {
     if (huart->Instance != hmi_huart.Instance)
         return;
-    tx_tail = (tx_tail + 1U) % HMI_TX_BUF_SIZE;
-    hmi_uart_tx_next_byte();
+    if (tx_wait_thread != NULL)
+    {
+        osThreadFlagsSet(tx_wait_thread, HMI_UART_TX_DONE);
+    }
+}
+
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance != hmi_huart.Instance)
+        return;
+    if (tx_wait_thread != NULL)
+    {
+        osThreadFlagsSet(tx_wait_thread, HMI_UART_TX_ERROR);
+    }
 }
 
 /* ================================================================ */
@@ -267,7 +292,7 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 /* ================================================================ */
 
 /*
-void cnt_test_task(void const *arg)
+void cnt_test_task(void *arg)
 {
     while (1)
     {
@@ -283,21 +308,36 @@ void cnt_test_task(void const *arg)
 
 void hmi_uart_os_init(void)
 {
+    if (evt_mutex == NULL)
+    {
+        evt_mutex = osMutexNew(&hmi_evt_mutex_attr);
+    }
+    if (tx_mutex == NULL)
+    {
+        tx_mutex = osMutexNew(&hmi_tx_mutex_attr);
+    }
+    if (unpack_thread_id == NULL)
+    {
+        unpack_thread_id = osThreadNew(hmi_uart_unpack_task, NULL, &hmi_unpack_thread_attr);
+    }
     hmi_uart_init();
-    osMutexDef(hmi_evt_mutex);
-    evt_mutex = osMutexCreate(osMutex(hmi_evt_mutex));
-
-    osThreadDef(hmi_unpack, hmi_uart_unpack_task, osPriorityNormal, 0, 128);
-    unpack_thread_id = osThreadCreate(osThread(hmi_unpack), NULL);
 }
 
-void hmi_uart_unpack_task(void const *arg)
+static void hmi_uart_unpack_task(void *arg)
 {
+    (void)arg;
+
     while (1)
     {
+        uint32_t flags;
+
         /* For testing: print the current ring buffer content every 10s */
         /* Wait for new RX data (from IDLE callback) */
-        osSignalWait(HMI_UART_RX_RDY, osWaitForever);
+        flags = osThreadFlagsWait(HMI_UART_RX_RDY, osFlagsWaitAny, osWaitForever);
+        if ((flags & osFlagsError) != 0U)
+        {
+            continue;
+        }
 
         /* Unpack frames from the ring buffer */
         hmi_driver_unpack(&rx_ring);

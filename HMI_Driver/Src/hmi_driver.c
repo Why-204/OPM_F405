@@ -4,9 +4,9 @@
  *          a static pack buffer), frame unpacking, and all HMI command
  *          function implementations.
  *
- *          The original command API is preserved; only the internal send
- *          path has been changed from blocking UART to a pack-buffer +
- *          hmi_uart_send() model.
+ *          The original command API is preserved; command functions pack into
+ *          this file's local command buffer and send one DMA transfer per
+ *          command through hmi_uart_send().
  */
 #include "hmi_driver.h"
 #include <string.h>
@@ -14,9 +14,10 @@
 /* ================================================================ */
 /*  Pack buffer (replaces old direct-UART send)                      */
 /* ================================================================ */
-#define HMI_PACK_BUF_SIZE 64U
+#define HMI_PACK_BUF_SIZE 256U
 static uint8_t hmi_pack_buf[HMI_PACK_BUF_SIZE];
 static uint16_t hmi_pack_pos;
+static bool hmi_pack_overflow;
 
 /* ── CRC16 helpers (unchanged from original) ────────────────────── */
 #if (CRC16_ENABLE)
@@ -59,29 +60,32 @@ uint16 CheckCRC16(uint8 *buffer, uint16 n)
         AddCRC16(&(c), 1, &_crc16);                      \
         if (hmi_pack_pos < HMI_PACK_BUF_SIZE)            \
             hmi_pack_buf[hmi_pack_pos++] = (uint8_t)(c); \
+        else                                             \
+            hmi_pack_overflow = true;                    \
     } while (0)
 
 #define BEGIN_CMD()                              \
     do                                           \
     {                                            \
         hmi_pack_pos = 0;                        \
+        hmi_pack_overflow = false;               \
         _crc16 = 0xFFFF;                         \
         if (hmi_pack_pos < HMI_PACK_BUF_SIZE)    \
             hmi_pack_buf[hmi_pack_pos++] = 0xEE; \
     } while (0)
 
-#define END_CMD()                                          \
-    do                                                     \
-    {                                                      \
-        uint16_t __crc = _crc16;                           \
-        TX_8((uint8_t)(__crc >> 8));                       \
-        TX_8((uint8_t)(__crc & 0xFF));                     \
-        TX_8(0xFF);                                        \
-        TX_8(0xFC);                                        \
-        TX_8(0xFF);                                        \
-        TX_8(0xFF);                                        \
-        while (!hmi_uart_send(hmi_pack_buf, hmi_pack_pos)) \
-            osDelay(1);                                    \
+#define END_CMD()                                            \
+    do                                                       \
+    {                                                        \
+        uint16_t __crc = _crc16;                             \
+        TX_8((uint8_t)(__crc >> 8));                         \
+        TX_8((uint8_t)(__crc & 0xFF));                       \
+        TX_8(0xFF);                                          \
+        TX_8(0xFC);                                          \
+        TX_8(0xFF);                                          \
+        TX_8(0xFF);                                          \
+        if (!hmi_pack_overflow)                              \
+            (void)hmi_uart_send(hmi_pack_buf, hmi_pack_pos); \
     } while (0)
 
 #else /* NO CRC16 */
@@ -91,44 +95,47 @@ uint16 CheckCRC16(uint8 *buffer, uint16 n)
     {                                                    \
         if (hmi_pack_pos < HMI_PACK_BUF_SIZE)            \
             hmi_pack_buf[hmi_pack_pos++] = (uint8_t)(c); \
+        else                                             \
+            hmi_pack_overflow = true;                    \
     } while (0)
 
 #define BEGIN_CMD()                              \
     do                                           \
     {                                            \
         hmi_pack_pos = 0;                        \
+        hmi_pack_overflow = false;               \
         if (hmi_pack_pos < HMI_PACK_BUF_SIZE)    \
             hmi_pack_buf[hmi_pack_pos++] = 0xEE; \
     } while (0)
 
-#define END_CMD()                                          \
-    do                                                     \
-    {                                                      \
-        TX_8(0xFF);                                        \
-        TX_8(0xFC);                                        \
-        TX_8(0xFF);                                        \
-        TX_8(0xFF);                                        \
-        while (!hmi_uart_send(hmi_pack_buf, hmi_pack_pos)) \
-            osDelay(1);                                    \
+#define END_CMD()                                            \
+    do                                                       \
+    {                                                        \
+        TX_8(0xFF);                                          \
+        TX_8(0xFC);                                          \
+        TX_8(0xFF);                                          \
+        TX_8(0xFF);                                          \
+        if (!hmi_pack_overflow)                              \
+            (void)hmi_uart_send(hmi_pack_buf, hmi_pack_pos); \
     } while (0)
 
 #endif /* CRC16_ENABLE */
 
 /* ── TX macros (write into pack buffer, same semantics as before) ── */
-#define TX_8(P1) SEND_DATA((uint8_t)((P1) & 0xFF))
+#define TX_8(P1) SEND_DATA((uint8_t)((P1)&0xFF))
 #define TX_8N(P, N) SendNU8((uint8_t *)(P), (N))
-#define TX_16(P1)                    \
-    do                               \
-    {                                \
-        TX_8((uint16_t)(P1) >> 8);   \
-        TX_8((uint16_t)(P1) & 0xFF); \
+#define TX_16(P1)                  \
+    do                             \
+    {                              \
+        TX_8((uint16_t)(P1) >> 8); \
+        TX_8((uint16_t)(P1)&0xFF); \
     } while (0)
 #define TX_16N(P, N) SendNU16((uint16_t *)(P), (N))
-#define TX_32(P1)                       \
-    do                                  \
-    {                                   \
-        TX_16((uint32_t)(P1) >> 16);    \
-        TX_16((uint32_t)(P1) & 0xFFFF); \
+#define TX_32(P1)                     \
+    do                                \
+    {                                 \
+        TX_16((uint32_t)(P1) >> 16);  \
+        TX_16((uint32_t)(P1)&0xFFFF); \
     } while (0)
 
 /* ── Multi-byte helpers (write strings / arrays into pack buffer) ── */
@@ -1508,7 +1515,7 @@ void hmi_driver_pack_cmd(const uint8_t *data, uint16_t len)
     hmi_pack_buf[hmi_pack_pos++] = 0xFF;
     hmi_pack_buf[hmi_pack_pos++] = 0xFF;
 
-    hmi_uart_send(hmi_pack_buf, hmi_pack_pos);
+    (void)hmi_uart_send(hmi_pack_buf, hmi_pack_pos);
 }
 
 /* ================================================================ */
@@ -1821,7 +1828,10 @@ __weak void ProcessMessage(uint8_t cmd_type, uint8_t ctrl_msg,
     (void)param_len;
 }
 
-__weak void NotifyScreen(uint16_t screen_id) { (void)screen_id; }
+__weak void NotifyScreen(uint16_t screen_id)
+{
+    (void)screen_id;
+}
 
 __weak void NotifyTouchXY(uint8_t press, uint16_t x, uint16_t y)
 {

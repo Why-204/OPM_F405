@@ -55,7 +55,7 @@ void adc_task_init(void)
 static void adc_task_thread(void *argument)
 {
     ADC_Status status;
-	  uint32_t i, j;
+    uint32_t i, j;
     (void)argument;
 
     adc_task_state = ADC_TASK_STATE_STARTING;
@@ -64,7 +64,7 @@ static void adc_task_thread(void *argument)
     {
         adc_task_alive_tick++;
         adc_task_state = ADC_TASK_STATE_UNPACK_INIT;
-			  status = ADC_Driver_Init(&hspi2);
+        status = ADC_Driver_Init(&hspi2);
         if (status == ADC_STATUS_OK)
         {
             adc_task_state = ADC_TASK_STATE_DRIVER_INIT;
@@ -88,15 +88,15 @@ static void adc_task_thread(void *argument)
 
     for (;;)
     {
-			  osThreadFlagsWait(ADC_AVG_READY, osFlagsWaitAny, 10);
-			  ADC_Driver_GetStats(&adc_driver_stats);
-		    for (i = 0; i < ADC_CHANNEL_COUNT; i++)
-			  {
-				    adc_ch[i].raw_code = adc_frameAvgData.channel[i];
-				    adc_ch[i].adc_diff_v = adc_ch[i].raw_code * ana_cali_cfg.V_per_code;
-				    adc_ch[i].voltage_v = ana_cali_cfg.Vref - adc_ch[i].adc_diff_v;
-				    adc_ch[i].log_current = (adc_ch[i].voltage_v - ana_cali_cfg.B) * ana_cali_cfg.K;
-				    adc_ch[i].current_a = powf(10, adc_ch[i].log_current);
-				}
+        osThreadFlagsWait(ADC_AVG_READY, osFlagsWaitAny, 10);
+        ADC_Driver_GetStats(&adc_driver_stats);
+        for (i = 0; i < ADC_CHANNEL_COUNT; i++)
+        {
+            adc_ch[i].raw_code = adc_frameAvgData.channel[i];
+            adc_ch[i].adc_diff_v = adc_ch[i].raw_code * ana_cali_cfg.V_per_code;
+            adc_ch[i].voltage_v = ana_cali_cfg.Vref - adc_ch[i].adc_diff_v;
+            adc_ch[i].log_current = (adc_ch[i].voltage_v - ana_cali_cfg.B) * ana_cali_cfg.K;
+            adc_ch[i].current_a = powf(10, adc_ch[i].log_current);
+        }
     }
 }

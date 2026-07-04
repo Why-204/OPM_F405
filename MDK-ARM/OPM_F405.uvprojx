@@ -339,7 +339,7 @@
               <MiscControls></MiscControls>
               <Define>USE_HAL_DRIVER,STM32F405xx</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy;../Middlewares/Third_Party/FreeRTOS/Source/include;../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2;../Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F;../Drivers/CMSIS/Device/ST/STM32F4xx/Include;../Drivers/CMSIS/Include;../ADC_Driver/Inc;../Tasks</IncludePath>
+              <IncludePath>../Core/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy;../Middlewares/Third_Party/FreeRTOS/Source/include;../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2;../Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F;../Drivers/CMSIS/Device/ST/STM32F4xx/Include;../Drivers/CMSIS/Include;../ADC_Driver/Inc;../HMI_Driver/Inc;../Tasks</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -606,12 +606,37 @@
           </Files>
         </Group>
         <Group>
+          <GroupName>HMI_Driver</GroupName>
+          <Files>
+            <File>
+              <FileName>cmd_queue.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\HMI_Driver\Src\cmd_queue.c</FilePath>
+            </File>
+            <File>
+              <FileName>hmi_driver.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\HMI_Driver\Src\hmi_driver.c</FilePath>
+            </File>
+            <File>
+              <FileName>hmi_user_uart.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\HMI_Driver\Src\hmi_user_uart.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
           <GroupName>Tasks</GroupName>
           <Files>
             <File>
               <FileName>ADC_Task.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Tasks\ADC_Task.c</FilePath>
+            </File>
+            <File>
+              <FileName>HMI_Task.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Tasks\HMI_Task.c</FilePath>
             </File>
           </Files>
         </Group>

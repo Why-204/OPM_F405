@@ -28,8 +28,8 @@
 #define ADC_TASK_PERIOD_MS                 10U
 #define ADC_UNPACK_MAX_FRAMES_PER_WAKE     4U
 #define ADC_UNPACK_THREAD_STACK_BYTES      256U
-#define ADC_TASK_THREAD_STACK_BYTES        1536U
+#define ADC_TASK_THREAD_STACK_BYTES        1024U
 
-#define ADC_MAX_FRAME_LENGTH               100U
+#define ADC_MAX_FRAME_LENGTH               200U
 
 #endif /* ADC_CONFIG_H */

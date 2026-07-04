@@ -131,7 +131,7 @@ static void adc_driver_handle_dma_complete(SPI_HandleTypeDef *hspi)
     adc_driver_update_last_status(hspi, HAL_OK);
     adc_last_raw_sequence = s_sequence + 1U;
     memcpy((void *)adc_latest_raw_bytes, s_dma_frame, sizeof(adc_latest_raw_bytes));
-		osThreadFlagsSet(s_unpack_thread, ADC_UNPACK_START);
+    osThreadFlagsSet(s_unpack_thread, ADC_UNPACK_START);
 }
 
 static HAL_StatusTypeDef adc_driver_start_rxonly_dma(void)

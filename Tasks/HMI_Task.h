@@ -42,7 +42,7 @@ extern uint8_t hmi_cur_screen;   /* active screen ID               */
 /** Create the HMI control task.  Call once during init. */
 void hmi_task_init(void);
 
-/** HMI control task entry point (passed to osThreadCreate). */
-void hmi_control_task(void const *arg);
+/** HMI control task entry point. */
+void hmi_control_task(void *arg);
 
 #endif /* _HMI_TASK_H */

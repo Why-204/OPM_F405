@@ -8,6 +8,7 @@
  */
 
 #include "HMI_Task.h"
+#include "ADC_Task.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -101,10 +102,22 @@ static uint32_t g_next_refresh;
 /* ================================================================ */
 
 /** Base control ID for channel N (1‑based).  e.g. ch=1 → 10, ch=3 → 30 */
-static inline uint8_t ch_base(uint8_t ch_idx) { return (uint8_t)((ch_idx + 1U) * 10U); }
-static inline uint8_t ch_txt_wave(uint8_t ch_idx) { return ch_base(ch_idx) + 1U; }
-static inline uint8_t ch_txt_pwr(uint8_t ch_idx) { return ch_base(ch_idx) + 3U; }
-static inline uint8_t ch_txt_punit(uint8_t ch_idx) { return ch_base(ch_idx) + 4U; }
+static inline uint8_t ch_base(uint8_t ch_idx)
+{
+    return (uint8_t)((ch_idx + 1U) * 10U);
+}
+static inline uint8_t ch_txt_wave(uint8_t ch_idx)
+{
+    return ch_base(ch_idx) + 1U;
+}
+static inline uint8_t ch_txt_pwr(uint8_t ch_idx)
+{
+    return ch_base(ch_idx) + 3U;
+}
+static inline uint8_t ch_txt_punit(uint8_t ch_idx)
+{
+    return ch_base(ch_idx) + 4U;
+}
 
 #define STARTUP_RETRY_MS 1000U
 #define STARTUP_TIMEOUT 3000U
@@ -125,22 +138,32 @@ static void hmi_switch_channel(uint8_t new_ch, bool highlight);
 static void hmi_update_channel_highlight(void);
 static void hmi_format_power(char *buf, uint8_t idx);
 
+static osThreadId_t s_hmi_ctrl_thread;
+
+static const osThreadAttr_t s_hmi_ctrl_attr = {
+    .name = "hmi_ctrl",
+    .stack_size = 2048U,
+    .priority = (osPriority_t)osPriorityNormal,
+};
+
 /* ================================================================ */
 /*  Task bootstrap                                                   */
 /* ================================================================ */
 void hmi_task_init(void)
 {
-    osThreadDef(hmi_ctrl, hmi_control_task, osPriorityNormal, 0, 1536);
-    osThreadCreate(osThread(hmi_ctrl), NULL);
+    if (s_hmi_ctrl_thread == NULL)
+    {
+        s_hmi_ctrl_thread = osThreadNew(hmi_control_task, NULL, &s_hmi_ctrl_attr);
+    }
 }
 
 /* ================================================================ */
 /*  Main task                                                        */
 /* ================================================================ */
-void hmi_control_task(void const *arg)
+void hmi_control_task(void *arg)
 {
     (void)arg;
-
+    hmi_uart_os_init();
     hmi_init_data();
     hmi_cur_screen = 0U;
     g_scr_ok = false;
@@ -190,6 +213,10 @@ void hmi_control_task(void const *arg)
 
         if (osKernelSysTick() >= g_next_refresh)
         {
+            for (uint8_t i = 0U; i < hmi_num_ch && i < ADC_CHANNEL_COUNT; i++)
+            {
+                hmi_ch[i].raw_power = -adc_ch[i].voltage_v * 1000u;
+            }
             hmi_refresh_all();
             g_next_refresh = osKernelSysTick() + REFRESH_TICKS;
         }
@@ -249,23 +276,23 @@ static void hmi_format_mw_positive(char *buf, float mw)
     {
         float w = mw / 1000.0f;
         uint32_t v = (uint32_t)(w * 1000.0f + 0.5f);
-        snprintf(buf, 16, "%lu.%03lu",
+        snprintf(buf, 16, "%lu.%03lu W",
                  (unsigned long)(v / 1000U), (unsigned long)(v % 1000U));
     }
     else if (mw >= 1.0f) /* mW */
     {
         if (mw >= 100.0f)
-            snprintf(buf, 16, "%lu", (unsigned long)(uint32_t)(mw + 0.5f));
+            snprintf(buf, 16, "%lu mW", (unsigned long)(uint32_t)(mw + 0.5f));
         else if (mw >= 10.0f)
         {
             uint32_t v = (uint32_t)(mw * 10.0f + 0.5f);
-            snprintf(buf, 16, "%lu.%01lu",
+            snprintf(buf, 16, "%lu.%01lu mW",
                      (unsigned long)(v / 10U), (unsigned long)(v % 10U));
         }
         else
         {
             uint32_t v = (uint32_t)(mw * 100.0f + 0.5f);
-            snprintf(buf, 16, "%lu.%02lu",
+            snprintf(buf, 16, "%lu.%02lu mW",
                      (unsigned long)(v / 100U), (unsigned long)(v % 100U));
         }
     }
@@ -273,17 +300,17 @@ static void hmi_format_mw_positive(char *buf, float mw)
     {
         float uw = mw * 1000.0f;
         if (uw >= 100.0f)
-            snprintf(buf, 16, "%lu", (unsigned long)(uint32_t)(uw + 0.5f));
+            snprintf(buf, 16, "%lu µW", (unsigned long)(uint32_t)(uw + 0.5f));
         else if (uw >= 10.0f)
         {
             uint32_t v = (uint32_t)(uw * 10.0f + 0.5f);
-            snprintf(buf, 16, "%lu.%01lu",
+            snprintf(buf, 16, "%lu.%01lu µW",
                      (unsigned long)(v / 10U), (unsigned long)(v % 10U));
         }
         else
         {
             uint32_t v = (uint32_t)(uw * 100.0f + 0.5f);
-            snprintf(buf, 16, "%lu.%02lu",
+            snprintf(buf, 16, "%lu.%02lu µW",
                      (unsigned long)(v / 100U), (unsigned long)(v % 100U));
         }
     }

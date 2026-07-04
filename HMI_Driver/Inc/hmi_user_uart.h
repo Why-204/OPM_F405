@@ -13,7 +13,7 @@
 #include <stdbool.h>
 #include "stm32f4xx_hal.h"
 #include "cmsis_os.h"
-#include "usart.h"
+#include "main.h"
 
 #ifdef __cplusplus
 extern "C"
@@ -24,13 +24,12 @@ extern "C"
 /*  Configurable UART instance (change as needed)                    */
 /* ================================================================ */
 #ifndef hmi_huart
-#define hmi_huart huart2
+#define hmi_huart huart4
 #endif
 
 /* ================================================================ */
 /*  Buffer sizes                                                     */
 /* ================================================================ */
-#define HMI_TX_BUF_SIZE 512U     /* TX software queue (bytes)     */
 #define HMI_RX_DMA_BUF_SIZE 128U /* DMA RX buffer per bank        */
 #define HMI_EVENT_QUEUE_SIZE 32U /* pending events capacity       */
 
@@ -104,10 +103,12 @@ extern "C"
     /* ---- Send ------------------------------------------------------- */
 
     /**
-     * Send arbitrary bytes over the HMI UART (non-blocking, interrupt-driven).
-     * @return true if data was accepted into the TX queue, false if queue full.
+     * Send arbitrary bytes over the HMI UART using DMA.
+     * The call waits until the DMA transfer-complete callback signals the
+     * calling thread. Calls are serialized internally.
+     * @return true if all bytes were sent, false on DMA start/error/timeout.
      */
-    bool hmi_uart_send(const uint8_t *data, uint16_t len);
+    bool hmi_uart_send(const uint8_t *data, uint32_t len);
 
     /**
      * Send bytes over the HMI UART (blocking).  DEPRECATED — use
