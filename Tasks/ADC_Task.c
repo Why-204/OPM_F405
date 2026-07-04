@@ -4,6 +4,7 @@
 #include "cmsis_os.h"
 #include "main.h"
 #include <string.h>
+#include "math.h"
 
 extern SPI_HandleTypeDef hspi2;
 
@@ -11,6 +12,9 @@ ADC_ChannelData adc_ch[ADC_CHANNEL_COUNT];
 ADC_FrameData adc_latest_frame;
 ADC_DriverStats adc_driver_stats;
 uint8_t adc_data_valid;
+
+Analog_Calibration_Config ana_cali_cfg;
+
 volatile ADC_TaskState adc_task_state = ADC_TASK_STATE_STOPPED;
 volatile ADC_Status adc_task_last_status = ADC_STATUS_ERROR;
 volatile uint32_t adc_task_init_attempts;
@@ -18,7 +22,7 @@ volatile uint32_t adc_task_alive_tick;
 volatile uint32_t adc_task_store_cnt;
 volatile uint32_t adc_task_last_sequence;
 
-static osThreadId_t s_adc_task_thread;
+osThreadId_t s_adc_task_thread;
 
 static void adc_task_thread(void *argument);
 
@@ -28,10 +32,18 @@ static const osThreadAttr_t s_adc_task_attr = {
     .priority = (osPriority_t)osPriorityNormal,
 };
 
+void update_cali_cfg(float Vref, float Current_k, float Current_b)
+{
+    ana_cali_cfg.Vref = Vref;
+    ana_cali_cfg.V_per_code = Vref / ADC_CODE_FULL_SCALE;
+    ana_cali_cfg.K = 1 / Current_k;
+    ana_cali_cfg.B = Current_b;
+}
+
 void adc_task_init(void)
 {
     adc_task_init_attempts++;
-
+    update_cali_cfg(2.5013f, 0.3928f, 5.2619f);
     if (s_adc_task_thread == NULL)
     {
         adc_task_state = ADC_TASK_STATE_CREATING;
@@ -40,48 +52,10 @@ void adc_task_init(void)
     }
 }
 
-uint8_t adc_task_get_latest(ADC_FrameData *frame)
-{
-    uint32_t primask;
-
-    if ((frame == NULL) || (adc_data_valid == 0U))
-    {
-        return 0U;
-    }
-
-    primask = __get_PRIMASK();
-    __disable_irq();
-    memcpy(frame, &adc_latest_frame, sizeof(adc_latest_frame));
-    if (primask == 0U)
-    {
-        __enable_irq();
-    }
-
-    return frame->valid;
-}
-
-static void adc_task_store_frame(const ADC_FrameData *frame)
-{
-    uint32_t primask;
-
-    primask = __get_PRIMASK();
-    __disable_irq();
-    memcpy(&adc_latest_frame, frame, sizeof(adc_latest_frame));
-    memcpy(adc_ch, frame->channel, sizeof(adc_ch));
-    adc_data_valid = frame->valid;
-    adc_task_store_cnt++;
-    adc_task_last_sequence = frame->sequence;
-    if (primask == 0U)
-    {
-        __enable_irq();
-    }
-}
-
 static void adc_task_thread(void *argument)
 {
-    ADC_FrameData frame;
     ADC_Status status;
-
+	  uint32_t i, j;
     (void)argument;
 
     adc_task_state = ADC_TASK_STATE_STARTING;
@@ -90,11 +64,11 @@ static void adc_task_thread(void *argument)
     {
         adc_task_alive_tick++;
         adc_task_state = ADC_TASK_STATE_UNPACK_INIT;
-        status = ADC_Unpack_Init();
+			  status = ADC_Driver_Init(&hspi2);
         if (status == ADC_STATUS_OK)
         {
             adc_task_state = ADC_TASK_STATE_DRIVER_INIT;
-            status = ADC_Driver_Init(&hspi2);
+            status = ADC_Unpack_Init();
         }
         if (status == ADC_STATUS_OK)
         {
@@ -114,19 +88,15 @@ static void adc_task_thread(void *argument)
 
     for (;;)
     {
-        adc_task_alive_tick++;
-
-        if (ADC_Unpack_GetLatestFrame(&frame) != 0U)
-        {
-            adc_task_store_frame(&frame);
-            adc_task_state = ADC_TASK_STATE_RUNNING_WITH_DATA;
-        }
-        else
-        {
-            adc_task_state = ADC_TASK_STATE_RUNNING;
-        }
-
-        ADC_Driver_GetStats(&adc_driver_stats);
-        osDelay(ADC_TASK_PERIOD_MS);
+			  osThreadFlagsWait(ADC_AVG_READY, osFlagsWaitAny, 10);
+			  ADC_Driver_GetStats(&adc_driver_stats);
+		    for (i = 0; i < ADC_CHANNEL_COUNT; i++)
+			  {
+				    adc_ch[i].raw_code = adc_frameAvgData.channel[i];
+				    adc_ch[i].adc_diff_v = adc_ch[i].raw_code * ana_cali_cfg.V_per_code;
+				    adc_ch[i].voltage_v = ana_cali_cfg.Vref - adc_ch[i].adc_diff_v;
+				    adc_ch[i].log_current = (adc_ch[i].voltage_v - ana_cali_cfg.B) * ana_cali_cfg.K;
+				    adc_ch[i].current_a = powf(10, adc_ch[i].log_current);
+				}
     }
 }

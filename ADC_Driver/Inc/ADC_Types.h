@@ -26,15 +26,13 @@ typedef struct
     int32_t raw_code;
     float adc_diff_v;
     float voltage_v;
+    float log_current;
     float current_a;
-    uint8_t valid;
 } ADC_ChannelData;
 
 typedef struct
 {
-    ADC_ChannelData channel[ADC_CHANNEL_COUNT];
-    uint32_t sequence;
-    uint32_t timestamp_ms;
+    int32_t channel[ADC_CHANNEL_COUNT];
     uint8_t valid;
 } ADC_FrameData;
 
@@ -59,5 +57,13 @@ typedef struct
     uint8_t running;
     uint8_t dma_busy;
 } ADC_DriverStats;
+
+typedef struct
+{
+    float Vref;
+    float V_per_code;
+    float B;
+    float K;
+} Analog_Calibration_Config;
 
 #endif /* ADC_TYPES_H */

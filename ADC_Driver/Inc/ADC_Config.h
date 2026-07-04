@@ -14,7 +14,7 @@
 #define ADC_SYNC_LOW_TIME_MS               1U
 
 #define ADC_VREF_V                         2.5f
-#define ADC_CODE_FULL_SCALE                8388608.0f
+#define ADC_CODE_FULL_SCALE                8388607.0f
 
 /* ADC_diff = OUT_P - OUT_N. Measured input ~= 2.5V - ADC_diff. */
 #define ADC_FRONTEND_INPUT_AT_ZERO_DIFF_V  2.5f
@@ -27,7 +27,9 @@
 
 #define ADC_TASK_PERIOD_MS                 10U
 #define ADC_UNPACK_MAX_FRAMES_PER_WAKE     4U
-#define ADC_UNPACK_THREAD_STACK_BYTES      2048U
+#define ADC_UNPACK_THREAD_STACK_BYTES      256U
 #define ADC_TASK_THREAD_STACK_BYTES        1536U
+
+#define ADC_MAX_FRAME_LENGTH               100U
 
 #endif /* ADC_CONFIG_H */

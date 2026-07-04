@@ -3,17 +3,20 @@
 
 #include <stdint.h>
 #include "ADC_Types.h"
+#include "cmsis_os.h"
 
-extern volatile uint32_t adc_unpack_cnt;
-extern volatile uint32_t adc_unpack_nonzero_channel_mask;
-extern volatile uint8_t adc_unpack_last_raw_bytes[ADC_FRAME_BYTES];
-extern volatile int32_t adc_unpack_last_raw_code[ADC_CHANNEL_COUNT];
-extern volatile float adc_unpack_last_adc_diff_v[ADC_CHANNEL_COUNT];
-extern volatile float adc_unpack_last_voltage_v[ADC_CHANNEL_COUNT];
+#define ADC_UNPACK_START 1u
+#define ADC_AVG_START 2u
+#define ADC_AVG_RESET 4u
+#define ADC_AVG_READY 1u
+
+extern uint32_t adc_unpack_cnt;
+extern osThreadId_t s_unpack_thread;
+
+extern ADC_FrameData adc_frameAvgData;
+extern uint32_t adc_current_frame_index;
+extern uint32_t adc_acc_frame_length;
+
 
 ADC_Status ADC_Unpack_Init(void);
-uint8_t ADC_Unpack_GetLatestFrame(ADC_FrameData *frame);
-uint32_t ADC_Unpack_GetFrameCount(void);
-void ADC_Driver_FrameReadyCallbackFromISR(void);
-
 #endif /* ADC_UNPACK_H */

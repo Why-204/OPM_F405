@@ -22,7 +22,7 @@
 #define __STM32F4xx_IT_H
 
 #ifdef __cplusplus
- extern "C" {
+extern "C" {
 #endif
 
 /* Private includes ----------------------------------------------------------*/
@@ -58,6 +58,7 @@ void DMA1_Stream4_IRQHandler(void);
 void EXTI9_5_IRQHandler(void);
 void TIM1_UP_TIM10_IRQHandler(void);
 void USART3_IRQHandler(void);
+void TIM8_TRG_COM_TIM14_IRQHandler(void);
 void UART4_IRQHandler(void);
 void UART5_IRQHandler(void);
 /* USER CODE BEGIN EFP */

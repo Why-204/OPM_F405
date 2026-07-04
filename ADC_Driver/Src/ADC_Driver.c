@@ -1,6 +1,7 @@
 #include "ADC_Driver.h"
-#include "ADC_Buffer.h"
+#include "ADC_Unpack.h"
 #include "main.h"
+#include "cmsis_os.h"
 #include <string.h>
 
 typedef struct
@@ -130,33 +131,7 @@ static void adc_driver_handle_dma_complete(SPI_HandleTypeDef *hspi)
     adc_driver_update_last_status(hspi, HAL_OK);
     adc_last_raw_sequence = s_sequence + 1U;
     memcpy((void *)adc_latest_raw_bytes, s_dma_frame, sizeof(adc_latest_raw_bytes));
-
-    if (__HAL_GPIO_EXTI_GET_IT(ADC_DRDY_Pin) != RESET)
-    {
-        s_timing_discard_count++;
-        adc_timing_discard_cnt = s_timing_discard_count;
-    }
-
-    if (s_discard_remaining > 0U)
-    {
-        s_discard_remaining--;
-        s_discarded_frames++;
-        adc_discarded_frame_cnt = s_discarded_frames;
-        adc_discard_remaining_cnt = s_discard_remaining;
-        return;
-    }
-
-    s_sequence++;
-    if (ADC_Buffer_PushFromISR(s_dma_frame, s_sequence, HAL_GetTick()) == ADC_STATUS_OK)
-    {
-        s_frames_pushed++;
-        adc_frame_pushed_cnt = s_frames_pushed;
-        ADC_Driver_FrameReadyCallbackFromISR();
-    }
-    else
-    {
-        s_ring_overflow_count++;
-    }
+		osThreadFlagsSet(s_unpack_thread, ADC_UNPACK_START);
 }
 
 static HAL_StatusTypeDef adc_driver_start_rxonly_dma(void)
@@ -316,7 +291,6 @@ ADC_Status ADC_Driver_Init(SPI_HandleTypeDef *hspi)
 
     memset(s_dma_frame, 0, sizeof(s_dma_frame));
     memset((void *)adc_latest_raw_bytes, 0, sizeof(adc_latest_raw_bytes));
-    ADC_Buffer_Reset();
 
     HAL_GPIO_WritePin(ADC_SYNC_GPIO_Port, ADC_SYNC_Pin, GPIO_PIN_SET);
     adc_discard_remaining_cnt = s_discard_remaining;
@@ -334,7 +308,6 @@ ADC_Status ADC_Driver_Start(void)
 
     s_running = 0U;
     s_dma_busy = 0U;
-    ADC_Buffer_Reset();
     ADC_Driver_EnableChannels(0xFFU);
     HAL_Delay(ADC_POWER_UP_DELAY_MS);
     ADC_Driver_Sync();
@@ -371,17 +344,6 @@ void ADC_Driver_EnableChannels(uint8_t channel_mask)
         GPIO_PinState state = ((channel_mask & (1U << i)) != 0U) ? GPIO_PIN_SET : GPIO_PIN_RESET;
         HAL_GPIO_WritePin(s_pwdn_pins[i].port, s_pwdn_pins[i].pin, state);
     }
-}
-
-ADC_Status ADC_Driver_PopRawFrame(ADC_RawFrame *frame)
-{
-    ADC_Status status = ADC_Buffer_Pop(frame);
-    if (status == ADC_STATUS_OK)
-    {
-        s_frames_popped++;
-        adc_frame_popped_cnt = s_frames_popped;
-    }
-    return status;
 }
 
 void ADC_Driver_GetStats(ADC_DriverStats *stats)

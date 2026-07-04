@@ -1,0 +1,44 @@
+# OS / editor local files
+.DS_Store
+Thumbs.db
+thumbs.db
+*.swp
+*.swo
+*.tmp
+*.bak
+*~
+
+# Generic C / embedded build artifacts
+*.d
+*.o
+*.obj
+*.elf
+*.hex
+*.bin
+*.map
+*.out
+*.axf
+*.crf
+*.lnp
+*.lst
+*.dep
+*.iex
+*.su
+
+# Generated build reports
+*.build_log.htm
+*.htm
+*.disasm
+*.symbols
+*.tra
+
+# Local build output directories
+/Debug/
+/Release/
+/build/
+/MDK-ARM/Objects/
+/MDK-ARM/Listings/
+/MDK-ARM/OPM_F405/
+
+# Keil uVision user-local files
+*.uvguix.*
