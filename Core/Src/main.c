@@ -126,7 +126,6 @@ int main(void)
   MX_TIM14_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-	adc_task_init();
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -150,10 +149,10 @@ int main(void)
 
   /* Create the thread(s) */
   /* creation of defaultTask */
-  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
+	adc_task_init();
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
