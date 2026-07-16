@@ -118,6 +118,10 @@ static inline uint8_t ch_txt_punit(uint8_t ch_idx)
 {
     return ch_base(ch_idx) + 4U;
 }
+static inline uint8_t ch_txt_current(uint8_t ch_idx)
+{
+    return ch_base(ch_idx) + 6U;
+}
 
 #define STARTUP_RETRY_MS 1000U
 #define STARTUP_TIMEOUT 3000U
@@ -137,6 +141,8 @@ static void hmi_do_calibration(void);
 static void hmi_switch_channel(uint8_t new_ch, bool highlight);
 static void hmi_update_channel_highlight(void);
 static void hmi_format_power(char *buf, uint8_t idx);
+static void hmi_format_dbma(char *buf, uint8_t idx);
+static void hmi_format_ma(char *buf, uint8_t idx);
 
 static osThreadId_t s_hmi_ctrl_thread;
 
@@ -383,6 +389,51 @@ static void hmi_format_power(char *buf, uint8_t idx)
     }
 }
 
+/** Format channel current in dBmA:  I_dBmA = 100 * (V_channel - 2.3). */
+static void hmi_format_dbma(char *buf, uint8_t idx)
+{
+    float idbma = 100.0f * (adc_ch[idx].voltage_v - 2.3f);
+    int32_t centi = (int32_t)(idbma * 100.0f + (idbma >= 0.0f ? 0.5f : -0.5f));
+    bool neg = (centi < 0);
+    uint32_t a = neg ? (uint32_t)(-centi) : (uint32_t)centi;
+    snprintf(buf, 16, "%c%lu.%02lu",
+             neg ? '-' : ' ',
+             (unsigned long)(a / 100U), (unsigned long)(a % 100U));
+}
+
+/** Format channel current magnitude in mA (numeric only).
+ *  dBmA = 100 * (V_channel - 2.3);  I_mA = 10^(dBmA / 10). */
+static void hmi_format_ma(char *buf, uint8_t idx)
+{
+    float dbma = 100.0f * (adc_ch[idx].voltage_v - 2.3f);
+    float ma = powf(10.0f, dbma / 10.0f);
+    if (ma < 0.0f)
+        ma = -ma; /* absolute value (defensive) */
+
+    if (ma >= 100.0f)
+    {
+        snprintf(buf, 16, "%lu", (unsigned long)(uint32_t)(ma + 0.5f));
+    }
+    else if (ma >= 10.0f)
+    {
+        uint32_t v = (uint32_t)(ma * 100.0f + 0.5f);
+        snprintf(buf, 16, "%lu.%02lu",
+                 (unsigned long)(v / 100U), (unsigned long)(v % 100U));
+    }
+    else if (ma >= 1.0f)
+    {
+        uint32_t v = (uint32_t)(ma * 1000.0f + 0.5f);
+        snprintf(buf, 16, "%lu.%03lu",
+                 (unsigned long)(v / 1000U), (unsigned long)(v % 1000U));
+    }
+    else
+    {
+        uint32_t v = (uint32_t)(ma * 10000.0f + 0.5f);
+        snprintf(buf, 16, "%lu.%04lu",
+                 (unsigned long)(v / 10000U), (unsigned long)(v % 10000U));
+    }
+}
+
 /* ================================================================ */
 /*  Display refresh                                                  */
 /* ================================================================ */
@@ -415,9 +466,13 @@ static void hmi_refresh_channel(uint8_t idx)
         SetTextValue(scr, wave_id, (uchar *)buf);
     }
 
-    /* Power value */
-    hmi_format_power(buf, idx);
+    /* Current absolute value (mA, numeric only):  dBmA = 100*(V-2.3), I_mA = 10^(dBmA/10) */
+    hmi_format_ma(buf, idx);
     SetTextValue(scr, pwr_id, (uchar *)buf);
+
+    /* Current value (dBmA):  I = 100 * (V_channel - 2.3) */
+    hmi_format_dbma(buf, idx);
+    SetTextValue(scr, ch_txt_current(idx), (uchar *)buf);
 
     /* Power blink */
     {
@@ -425,22 +480,10 @@ static void hmi_refresh_channel(uint8_t idx)
         SetTextBlink(scr, pwr_id, blink ? POWER_BLINK_PERIOD : 0U);
     }
 
-    /* Power unit */
-    if (hmi_ch[idx].unit == 0U)
-    {
-        SetTextValue(scr, punit_id, (uchar *)"dBm");
-    }
-    else
-    {
-        float mw = hmi_get_actual_mw(idx);
-        float amw = (mw < 0.0f) ? -mw : mw;
-        if (amw >= 1000.0f)
-            SetTextValue(scr, punit_id, (uchar *)"W");
-        else if (amw >= 1.0f)
-            SetTextValue(scr, punit_id, (uchar *)"mW");
-        else
-            SetTextValue(scr, punit_id, (uchar *)"uW");
-    }
+    /* Unit labels: "mA" for the current value box (14,24,...,84),
+     *              "dBmA" for the log-value box (12,22,...,82) */
+    SetTextValue(scr, punit_id, (uchar *)"mA");
+    SetTextValue(scr, (uint8_t)(base + 2U), (uchar *)"dBmA");
 }
 
 /* ================================================================ */
