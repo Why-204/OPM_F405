@@ -169,7 +169,6 @@ void hmi_task_init(void)
 void hmi_control_task(void *arg)
 {
     (void)arg;
-    osDelay(500); /* wait for HMI screen power-up before talking to it */
     hmi_uart_os_init();
     hmi_init_data();
     hmi_cur_screen = 0U;
