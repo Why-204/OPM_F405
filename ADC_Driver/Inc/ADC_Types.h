@@ -28,6 +28,7 @@ typedef struct
     float voltage_v;
     float log_current;
     float current_a;
+    float dBmA;
 } ADC_ChannelData;
 
 typedef struct

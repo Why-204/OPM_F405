@@ -25,7 +25,7 @@ typedef enum
 typedef struct
 {
     uint32_t wavelength; /* centi‑nm (×100), e.g. 131000 = 1310.00 nm */
-    int32_t raw_power;   /* centi‑dBm (×100), from sensor       */
+    float raw_power;     /* dBm value, from sensor              */
     int32_t zero_cal;    /* centi‑dBm (×100), calibration ref   */
     uint8_t unit;        /* 0 = dBm,  1 = Auto (uW / mW / W)  */
     bool power_blink;    /* true → power text should blink      */

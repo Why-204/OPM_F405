@@ -163,13 +163,14 @@ void hmi_task_init(void)
 void hmi_control_task(void *arg)
 {
     (void)arg;
+    osDelay(1000); /* delay startup by 1 second */
     hmi_uart_os_init();
     hmi_init_data();
     hmi_cur_screen = 0U;
     g_scr_ok = false;
     g_state = ST_STARTUP;
 
-    /* ── Startup: block until screen confirms or timeout ──────── */
+    /* ── Startup: block until screen onfirms or timeout ──────── */
     {
         uint32_t t0 = osKernelSysTick();
         uint32_t last_send = t0 - STARTUP_RETRY_MS; /* trigger immediate send */
@@ -215,7 +216,9 @@ void hmi_control_task(void *arg)
         {
             for (uint8_t i = 0U; i < hmi_num_ch && i < ADC_CHANNEL_COUNT; i++)
             {
-                hmi_ch[i].raw_power = -adc_ch[i].voltage_v * 1000u;
+                /* dBmA = 10·log10(I / 1mA) */
+                adc_ch[i].dBmA = 20.0f * log10f(adc_ch[i].current_a / 1e-3f);
+                hmi_ch[i].raw_power = adc_ch[i].dBmA;
             }
             hmi_refresh_all();
             g_next_refresh = osKernelSysTick() + REFRESH_TICKS;
@@ -236,7 +239,7 @@ static void hmi_init_data(void)
     for (uint8_t i = 0U; i < hmi_num_ch; i++)
     {
         hmi_ch[i].wavelength = 131000UL;
-        hmi_ch[i].raw_power = -1000; /* −10.00 dBm     */
+        hmi_ch[i].raw_power = -10.0f; /* −10.0 dBm      */
         hmi_ch[i].zero_cal = CAL_THRESH_CDBM;
         hmi_ch[i].unit = 0U;
         hmi_ch[i].power_blink = false;
@@ -416,8 +419,44 @@ static void hmi_refresh_channel(uint8_t idx)
     }
 
     /* Power value */
-    hmi_format_power(buf, idx);
-    SetTextValue(scr, pwr_id, (uchar *)buf);
+    if (hmi_ch[idx].unit == 0U)
+    {
+        /* dBm mode: show raw_power itself, one decimal */
+        float v = hmi_ch[idx].raw_power;
+        int32_t deci = (int32_t)(v * 10.0f + (v < 0.0f ? -0.5f : 0.5f));
+        bool neg = (deci < 0);
+        uint32_t a = neg ? (uint32_t)(-deci) : (uint32_t)deci;
+        snprintf(buf, sizeof(buf), "%s%lu.%01lu",
+                 neg ? "-" : "",
+                 (unsigned long)(a / 10U), (unsigned long)(a % 10U));
+        SetTextValue(scr, pwr_id, (uchar *)buf);
+        hmi_ch[idx].power_blink = false;
+    }
+    else
+    {
+        /* current mode: value = current_a * gain, scaled into (1, 1000) */
+        float ia = adc_ch[idx].current_a;
+        float gain;
+        if (ia <= 1e-12f)
+            gain = 1e15f; /* fA */
+        else if (ia <= 1e-9f)
+            gain = 1e12f; /* pA */
+        else if (ia <= 1e-6f)
+            gain = 1e9f; /* nA */
+        else if (ia <= 1e-3f)
+            gain = 1e6f; /* uA */
+        else if (ia <= 1.0f)
+            gain = 1e3f; /* mA */
+        else
+            gain = 1.0f; /* A  */
+
+        float v = ia * gain;
+        uint32_t a = (uint32_t)(v * 10.0f + 0.5f);
+        snprintf(buf, sizeof(buf), "%lu.%01lu",
+                 (unsigned long)(a / 10U), (unsigned long)(a % 10U));
+        SetTextValue(scr, pwr_id, (uchar *)buf);
+        hmi_ch[idx].power_blink = false;
+    }
 
     /* Power blink */
     {
@@ -428,18 +467,22 @@ static void hmi_refresh_channel(uint8_t idx)
     /* Power unit */
     if (hmi_ch[idx].unit == 0U)
     {
-        SetTextValue(scr, punit_id, (uchar *)"dBm");
+        SetTextValue(scr, punit_id, (uchar *)"dBmA");
     }
     else
     {
-        float mw = hmi_get_actual_mw(idx);
-        float amw = (mw < 0.0f) ? -mw : mw;
-        if (amw >= 1000.0f)
-            SetTextValue(scr, punit_id, (uchar *)"W");
-        else if (amw >= 1.0f)
-            SetTextValue(scr, punit_id, (uchar *)"mW");
+        if (adc_ch[idx].current_a <= 1e-12f)
+            SetTextValue(scr, punit_id, (uchar *)"fA");
+        else if (adc_ch[idx].current_a <= 1e-9f)
+            SetTextValue(scr, punit_id, (uchar *)"pA");
+        else if (adc_ch[idx].current_a <= 1e-6f)
+            SetTextValue(scr, punit_id, (uchar *)"nA");
+        else if (adc_ch[idx].current_a <= 1e-3f)
+            SetTextValue(scr, punit_id, (uchar *)"uA");
+        else if (adc_ch[idx].current_a <= 1.0f)
+            SetTextValue(scr, punit_id, (uchar *)"mA");
         else
-            SetTextValue(scr, punit_id, (uchar *)"uW");
+            SetTextValue(scr, punit_id, (uchar *)"A");
     }
 }
 
