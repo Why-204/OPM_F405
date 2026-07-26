@@ -339,7 +339,7 @@
               <MiscControls></MiscControls>
               <Define>USE_HAL_DRIVER,STM32F405xx</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy;../Middlewares/Third_Party/FreeRTOS/Source/include;../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2;../Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F;../Drivers/CMSIS/Device/ST/STM32F4xx/Include;../Drivers/CMSIS/Include;../ADC_Driver/Inc;../HMI_Driver/Inc;../Tasks</IncludePath>
+              <IncludePath>../Core/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy;../Middlewares/Third_Party/FreeRTOS/Source/include;../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2;../Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F;../Drivers/CMSIS/Device/ST/STM32F4xx/Include;../Drivers/CMSIS/Include;../ADC_Driver/Inc;../HMI_Driver/Inc;../Tasks;../UART_Driver/Inc</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -637,6 +637,31 @@
               <FileName>HMI_Task.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Tasks\HMI_Task.c</FilePath>
+            </File>
+            <File>
+              <FileName>UART_Task.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Tasks\UART_Task.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>UART_Driver</GroupName>
+          <Files>
+            <File>
+              <FileName>opm_protocol.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\UART_Driver\Src\opm_protocol.c</FilePath>
+            </File>
+            <File>
+              <FileName>opm_channel.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\UART_Driver\Src\opm_channel.c</FilePath>
+            </File>
+            <File>
+              <FileName>ch9121.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\UART_Driver\Src\ch9121.c</FilePath>
             </File>
           </Files>
         </Group>

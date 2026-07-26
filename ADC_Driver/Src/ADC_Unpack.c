@@ -21,6 +21,9 @@ uint32_t adc_acc_frame_length = ADC_MAX_FRAME_LENGTH;
 extern TIM_HandleTypeDef htim14;
 static void adc_unpack_thread(void *argument);
 
+/* TIM14 目前采用 72 分频，计数时钟约 750 kHz；16 位自动重装上限约 87.38 ms。 */
+#define ADC_AVG_TIMER_MAX_US 87381U
+
 static const osThreadAttr_t s_unpack_thread_attr = {
     .name = "adc_unpack",
     .stack_size = ADC_UNPACK_THREAD_STACK_BYTES,
@@ -65,7 +68,7 @@ static void adc_unpack_thread(void *argument)
 
     for (;;)
     {
-        flags = osThreadFlagsWait(ADC_UNPACK_START | ADC_AVG_START, osFlagsWaitAny, 10);
+        flags = osThreadFlagsWait(ADC_UNPACK_START | ADC_AVG_START | ADC_AVG_RESET, osFlagsWaitAny, 10);
         if (flags == osFlagsError)
         {
             osDelay(10);
@@ -76,7 +79,9 @@ static void adc_unpack_thread(void *argument)
             memset(adc_frameData, 0, sizeof(adc_frameData));
             memset(&adc_frameAvgData, 0, sizeof(adc_frameAvgData));
             memset(&adc_frameSumData, 0, sizeof(adc_frameSumData));
-            osThreadFlagsWait(ADC_AVG_START, osFlagsWaitAny, osWaitForever);
+            adc_unpack_acc_length = 0;
+            adc_unpack_valid_length = 0;
+            adc_current_frame_index = 0;
             continue;
         }
         if (flags & ADC_UNPACK_START)
@@ -118,4 +123,76 @@ ADC_Status adc_set_frame_length(uint32_t frame_length)
         return ADC_STATUS_OK;
     }
     return ADC_STATUS_INVALID_PARAM;
+}
+
+ADC_Status ADC_Unpack_SetAverageTimeUs(uint32_t sample_us)
+{
+    uint32_t timer_us;
+    uint32_t frame_length;
+    uint32_t timer_ticks;
+
+    if (sample_us < 50U)
+    {
+        return ADC_STATUS_INVALID_PARAM;
+    }
+
+    /* 现有 TIM14 只能在约 87ms 以内按 us 级重装；更长时间用滑动窗补足。 */
+    if (sample_us <= ADC_AVG_TIMER_MAX_US)
+    {
+        timer_us = sample_us;
+        frame_length = 1U;
+    }
+    else
+    {
+        timer_us = ADC_AVG_TIMER_MAX_US;
+        frame_length = (sample_us + timer_us - 1U) / timer_us;
+        if (frame_length >= ADC_MAX_FRAME_LENGTH)
+        {
+            frame_length = ADC_MAX_FRAME_LENGTH - 1U;
+        }
+    }
+
+    /* 750 kHz 计数时钟：1 tick ≈ 1.333us。换算为 ARR = ticks - 1。 */
+    timer_ticks = ((timer_us * 3U) + 2U) / 4U;
+    if (timer_ticks == 0U)
+    {
+        timer_ticks = 1U;
+    }
+    if (timer_ticks > 0x10000U)
+    {
+        timer_ticks = 0x10000U;
+    }
+
+    if (adc_set_frame_length(frame_length) != ADC_STATUS_OK)
+    {
+        return ADC_STATUS_INVALID_PARAM;
+    }
+
+    if (HAL_TIM_Base_Stop_IT(&htim14) != HAL_OK)
+    {
+        return ADC_STATUS_ERROR;
+    }
+
+    __HAL_TIM_SET_AUTORELOAD(&htim14, (uint32_t)(timer_ticks - 1U));
+    __HAL_TIM_SET_COUNTER(&htim14, 0U);
+    __HAL_TIM_CLEAR_FLAG(&htim14, TIM_FLAG_UPDATE);
+
+    if (HAL_TIM_Base_Start_IT(&htim14) != HAL_OK)
+    {
+        return ADC_STATUS_ERROR;
+    }
+
+    adc_unpack_acc_length = 0;
+    adc_unpack_valid_length = 0;
+    adc_current_frame_index = 0;
+    memset(adc_frameData, 0, sizeof(adc_frameData));
+    memset(&adc_frameAvgData, 0, sizeof(adc_frameAvgData));
+    memset(&adc_frameSumData, 0, sizeof(adc_frameSumData));
+
+    if (s_unpack_thread != NULL)
+    {
+        osThreadFlagsSet(s_unpack_thread, ADC_AVG_RESET);
+    }
+
+    return ADC_STATUS_OK;
 }

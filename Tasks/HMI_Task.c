@@ -216,8 +216,7 @@ void hmi_control_task(void *arg)
         {
             for (uint8_t i = 0U; i < hmi_num_ch && i < ADC_CHANNEL_COUNT; i++)
             {
-                /* dBmA = 10·log10(I / 1mA) */
-                adc_ch[i].dBmA = 10.0f * log10f(adc_ch[i].current_a / 1e-3f);
+                /* dBmA 由 ADC 任务在数据源头计算，这里仅读取 */
                 hmi_ch[i].raw_power = adc_ch[i].dBmA;
             }
             hmi_refresh_all();

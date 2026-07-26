@@ -18,4 +18,5 @@ extern uint32_t adc_current_frame_index;
 extern uint32_t adc_acc_frame_length;
 
 ADC_Status ADC_Unpack_Init(void);
+ADC_Status ADC_Unpack_SetAverageTimeUs(uint32_t sample_us);
 #endif /* ADC_UNPACK_H */

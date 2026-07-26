@@ -97,6 +97,8 @@ static void adc_task_thread(void *argument)
             adc_ch[i].voltage_v = ana_cali_cfg.Vref - adc_ch[i].adc_diff_v;
             adc_ch[i].log_current = (adc_ch[i].voltage_v - ana_cali_cfg.B) * ana_cali_cfg.K;
             adc_ch[i].current_a = powf(10, adc_ch[i].log_current);
+            /* dBmA = 10·log10(I / 1mA) —— 在数据源头计算，供 HMI 与协议任务共享 */
+            adc_ch[i].dBmA = 10.0f * log10f(adc_ch[i].current_a / 1e-3f);
         }
     }
 }
