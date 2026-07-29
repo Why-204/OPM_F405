@@ -15,14 +15,12 @@ int32_t adc_unpack_valid_length;
 ADC_FrameData adc_frameData[ADC_MAX_FRAME_LENGTH];
 ADC_FrameData adc_frameSumData;
 ADC_FrameData adc_frameAvgData;
+ADC_FrameData adc_frame4ms;
 uint32_t adc_current_frame_index = 0;
-uint32_t adc_acc_frame_length = ADC_MAX_FRAME_LENGTH;
+uint32_t adc_acc_frame_length = ADC_AVG_DEFAULT_FRAMES;
 
 extern TIM_HandleTypeDef htim14;
 static void adc_unpack_thread(void *argument);
-
-/* TIM14 目前采用 72 分频，计数时钟约 750 kHz；16 位自动重装上限约 87.38 ms。 */
-#define ADC_AVG_TIMER_MAX_US 87381U
 
 static const osThreadAttr_t s_unpack_thread_attr = {
     .name = "adc_unpack",
@@ -98,12 +96,14 @@ static void adc_unpack_thread(void *argument)
             for (i = 0; i < ADC_CHANNEL_COUNT; i++)
             {
                 int32_t new_value = adc_unpack_acc_raw_code[i] / adc_unpack_acc_length;
+                adc_frame4ms.channel[i] = new_value; /* 发布本次 4ms 均值(原始码)供连续采样引擎取用 */
                 adc_frameSumData.channel[i] = adc_frameSumData.channel[i] - adc_frameData[adc_current_frame_index].channel[i] + new_value;
                 adc_frameData[adc_current_frame_index].channel[i] = new_value;
                 adc_unpack_acc_raw_code[i] = 0;
                 adc_frameAvgData.channel[i] = adc_frameSumData.channel[i] / adc_unpack_valid_length;
             }
             adc_frameAvgData.valid = 1;
+            adc_frame4ms.valid = 1;
             adc_frameData[adc_current_frame_index].valid = 1;
 
             adc_unpack_acc_length = 0;
@@ -127,68 +127,29 @@ ADC_Status adc_set_frame_length(uint32_t frame_length)
 
 ADC_Status ADC_Unpack_SetAverageTimeUs(uint32_t sample_us)
 {
-    uint32_t timer_us;
-    uint32_t frame_length;
-    uint32_t timer_ticks;
+    /* 采样平均时间只改「滑动均值数组长度 N」；4ms 基础窗口保持不变。
+     *   N = 采样时间 / 4ms
+     *   下限 20ms(N=5)，上限 2s(N=500)。 */
+    uint32_t sample_ms = sample_us / 1000U;
+    uint32_t n;
 
-    if (sample_us < 50U)
+    if (sample_ms < 20U)
     {
-        return ADC_STATUS_INVALID_PARAM;
+        sample_ms = 20U;
+    }
+    n = sample_ms / 4U;
+    if (n < ADC_AVG_MIN_FRAMES)
+    {
+        n = ADC_AVG_MIN_FRAMES;
+    }
+    if (n > ADC_MAX_FRAME_LENGTH)
+    {
+        n = ADC_MAX_FRAME_LENGTH;
     }
 
-    /* 现有 TIM14 只能在约 87ms 以内按 us 级重装；更长时间用滑动窗补足。 */
-    if (sample_us <= ADC_AVG_TIMER_MAX_US)
-    {
-        timer_us = sample_us;
-        frame_length = 1U;
-    }
-    else
-    {
-        timer_us = ADC_AVG_TIMER_MAX_US;
-        frame_length = (sample_us + timer_us - 1U) / timer_us;
-        if (frame_length >= ADC_MAX_FRAME_LENGTH)
-        {
-            frame_length = ADC_MAX_FRAME_LENGTH - 1U;
-        }
-    }
+    adc_acc_frame_length = n;
 
-    /* 750 kHz 计数时钟：1 tick ≈ 1.333us。换算为 ARR = ticks - 1。 */
-    timer_ticks = ((timer_us * 3U) + 2U) / 4U;
-    if (timer_ticks == 0U)
-    {
-        timer_ticks = 1U;
-    }
-    if (timer_ticks > 0x10000U)
-    {
-        timer_ticks = 0x10000U;
-    }
-
-    if (adc_set_frame_length(frame_length) != ADC_STATUS_OK)
-    {
-        return ADC_STATUS_INVALID_PARAM;
-    }
-
-    if (HAL_TIM_Base_Stop_IT(&htim14) != HAL_OK)
-    {
-        return ADC_STATUS_ERROR;
-    }
-
-    __HAL_TIM_SET_AUTORELOAD(&htim14, (uint32_t)(timer_ticks - 1U));
-    __HAL_TIM_SET_COUNTER(&htim14, 0U);
-    __HAL_TIM_CLEAR_FLAG(&htim14, TIM_FLAG_UPDATE);
-
-    if (HAL_TIM_Base_Start_IT(&htim14) != HAL_OK)
-    {
-        return ADC_STATUS_ERROR;
-    }
-
-    adc_unpack_acc_length = 0;
-    adc_unpack_valid_length = 0;
-    adc_current_frame_index = 0;
-    memset(adc_frameData, 0, sizeof(adc_frameData));
-    memset(&adc_frameAvgData, 0, sizeof(adc_frameAvgData));
-    memset(&adc_frameSumData, 0, sizeof(adc_frameSumData));
-
+    /* 让 unpack 线程在自身上下文里安全清空滑动窗缓冲与计数。 */
     if (s_unpack_thread != NULL)
     {
         osThreadFlagsSet(s_unpack_thread, ADC_AVG_RESET);

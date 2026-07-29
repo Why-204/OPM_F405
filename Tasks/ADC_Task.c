@@ -32,6 +32,116 @@ static const osThreadAttr_t s_adc_task_attr = {
     .priority = (osPriority_t)osPriorityNormal,
 };
 
+/* ================================================================ */
+/*  连续测量(高速版本) 采样引擎                                       */
+/*  粒度固定 100ms：每 25 个 4ms 原始码均值合成 1 个点(先平均后换算)。 */
+/* ================================================================ */
+static float s_cap_buf[ADC_CAP_MAX_COUNT][ADC_CHANNEL_COUNT]; /* SRAM1，57.6KB */
+static volatile uint8_t s_cap_active;
+static volatile uint32_t s_cap_target;
+static volatile uint32_t s_cap_done;
+static int64_t s_cap_acc[ADC_CHANNEL_COUNT];
+static uint32_t s_cap_block;
+
+/* 原始码 -> dBmA：与 adc_ch 换算链路一致(先平均后取 log 更准)。 */
+static float adc_raw_to_dBmA(int32_t raw_code)
+{
+    float adc_diff_v = raw_code * ana_cali_cfg.V_per_code;
+    float voltage_v = ana_cali_cfg.Vref - adc_diff_v;
+    float log_current = (voltage_v - ana_cali_cfg.B) * ana_cali_cfg.K;
+    float current_a = powf(10.0f, log_current);
+    return 10.0f * log10f(current_a / 1e-3f);
+}
+
+void adc_capture_start(uint32_t count)
+{
+    uint32_t i;
+    if (count == 0U)
+    {
+        return;
+    }
+    if (count > ADC_CAP_MAX_COUNT)
+    {
+        count = ADC_CAP_MAX_COUNT;
+    }
+    s_cap_active = 0U; /* 先停，避免与 tick 竞争 */
+    for (i = 0; i < ADC_CHANNEL_COUNT; i++)
+    {
+        s_cap_acc[i] = 0;
+    }
+    s_cap_block = 0U;
+    s_cap_done = 0U;
+    s_cap_target = count;
+    s_cap_active = 1U;
+}
+
+void adc_capture_stop(void)
+{
+    s_cap_active = 0U;
+}
+
+uint32_t adc_capture_get_done(void)
+{
+    return s_cap_done;
+}
+
+uint32_t adc_capture_read(uint8_t ch_index, uint32_t start, float *out, uint32_t n)
+{
+    uint32_t done = s_cap_done; /* 追加式：只读 < done 的已提交点，无需锁 */
+    uint32_t avail;
+    uint32_t i;
+    if (ch_index >= ADC_CHANNEL_COUNT || out == NULL)
+    {
+        return 0U;
+    }
+    avail = (start < done) ? (done - start) : 0U;
+    if (n > avail)
+    {
+        n = avail;
+    }
+    for (i = 0; i < n; i++)
+    {
+        out[i] = s_cap_buf[start + i][ch_index];
+    }
+    return n;
+}
+
+/* 每 4ms 调用一次，传入本次 4ms 原始码均值。满 25 个合成一个 100ms 点。 */
+static void adc_capture_tick(const int32_t *raw4ms)
+{
+    uint32_t i;
+    if (!s_cap_active)
+    {
+        return;
+    }
+    for (i = 0; i < ADC_CHANNEL_COUNT; i++)
+    {
+        s_cap_acc[i] += raw4ms[i];
+    }
+    s_cap_block++;
+    if (s_cap_block >= ADC_CAP_BLOCK_FRAMES)
+    {
+        if (s_cap_done < s_cap_target)
+        {
+            for (i = 0; i < ADC_CHANNEL_COUNT; i++)
+            {
+                int32_t avg = (int32_t)(s_cap_acc[i] / (int32_t)ADC_CAP_BLOCK_FRAMES);
+                s_cap_buf[s_cap_done][i] = adc_raw_to_dBmA(avg);
+            }
+            s_cap_done++;
+        }
+        for (i = 0; i < ADC_CHANNEL_COUNT; i++)
+        {
+            s_cap_acc[i] = 0;
+        }
+        s_cap_block = 0U;
+        if (s_cap_done >= s_cap_target)
+        {
+            s_cap_active = 0U;
+        }
+    }
+}
+
 void update_cali_cfg(float Vref, float Current_k, float Current_b)
 {
     ana_cali_cfg.Vref = Vref;
@@ -100,5 +210,7 @@ static void adc_task_thread(void *argument)
             /* dBmA = 10·log10(I / 1mA) —— 在数据源头计算，供 HMI 与协议任务共享 */
             adc_ch[i].dBmA = 10.0f * log10f(adc_ch[i].current_a / 1e-3f);
         }
+        /* 连续测量：每 4ms 喂一个 Stage-1 原始码均值给采样引擎 */
+        adc_capture_tick(adc_frame4ms.channel);
     }
 }

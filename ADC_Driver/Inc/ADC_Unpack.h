@@ -14,6 +14,7 @@ extern uint32_t adc_unpack_cnt;
 extern osThreadId_t s_unpack_thread;
 
 extern ADC_FrameData adc_frameAvgData;
+extern ADC_FrameData adc_frame4ms;      /* Stage-1：最近一个 4ms 窗口均值(原始码) */
 extern uint32_t adc_current_frame_index;
 extern uint32_t adc_acc_frame_length;
 

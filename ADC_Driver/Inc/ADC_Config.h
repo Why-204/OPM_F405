@@ -30,6 +30,15 @@
 #define ADC_UNPACK_THREAD_STACK_BYTES      256U
 #define ADC_TASK_THREAD_STACK_BYTES        1024U
 
-#define ADC_MAX_FRAME_LENGTH               200U
+/* 滑动均值数组：物理上限 500 帧(=2s@4ms)，默认 200 帧(=800ms)，下限 5 帧(=20ms)。 */
+#define ADC_MAX_FRAME_LENGTH               500U
+#define ADC_AVG_DEFAULT_FRAMES             200U
+#define ADC_AVG_MIN_FRAMES                 5U
+
+/* 连续测量(高速版本)：粒度固定 100ms(=25×4ms)；结果缓冲最大点数。
+ * 缓冲占用 = ADC_CAP_MAX_COUNT × ADC_CHANNEL_COUNT × 4B(float)。
+ * 1800×8×4 = 57.6KB，放普通 SRAM1。 */
+#define ADC_CAP_MAX_COUNT                  1800U
+#define ADC_CAP_BLOCK_FRAMES               25U
 
 #endif /* ADC_CONFIG_H */

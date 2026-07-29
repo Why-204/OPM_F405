@@ -330,7 +330,8 @@ static uint16_t h_sttm(const OpmFrame *req, uint8_t *resp, uint16_t cap)
     }
     g_opm_dev.sample_us[ch - 1U] = us;
 
-    /* 让“采样平均时间”真正作用到普通模式：重新配置 TIM14 周期并重置均值窗。 */
+    /* 采样平均时间只改滑动均值数组长度 N(=时间/4ms)，4ms 窗口不变。
+     * 下限 20ms、上限 2s，由 ADC_Unpack 内部钳制。 */
     if (ADC_Unpack_SetAverageTimeUs(us) != ADC_STATUS_OK)
     {
         return 0;
@@ -538,7 +539,9 @@ static uint16_t h_boot(const OpmFrame *req, uint8_t *resp, uint16_t cap)
     return build_status_ok(resp, cap, OPM_CMD_BOOT);
 }
 
-/* 20) STMP 启动光功率连续测量（高速版本） */
+/* 20) STMP 启动光功率连续测量（高速版本）
+ * 采样粒度固定 100ms。data: [count(4)][采样时间us(4)]。
+ * 采样时间被解释为“总时长上限”：有效次数 = min(count, 时长/100ms, 上限 ADC_CAP_MAX_COUNT)。 */
 static uint16_t h_stmp(const OpmFrame *req, uint8_t *resp, uint16_t cap)
 {
     if (req->data_len != 8U)
@@ -547,63 +550,60 @@ static uint16_t h_stmp(const OpmFrame *req, uint8_t *resp, uint16_t cap)
     }
     uint32_t count = opm_rd_u32le(&req->data[0]);
     uint32_t us = opm_rd_u32le(&req->data[4]);
-    if (count < 1U || count > 1000000U || us < 50U)
+    uint32_t max_by_time = us / 100000U; /* 100ms = 100000us 每点 */
+    uint32_t eff;
+
+    if (count < 1U)
     {
         return 0;
     }
+    eff = count;
+    if (max_by_time < eff)
+    {
+        eff = max_by_time;
+    }
+    if (eff > ADC_CAP_MAX_COUNT)
+    {
+        eff = ADC_CAP_MAX_COUNT;
+    }
+    if (eff == 0U)
+    {
+        return 0; /* 时长不足 100ms，采不到点 */
+    }
+
     g_opm_dev.meas_mode = OPM_MEAS_CONTINUOUS;
-    g_opm_dev.meas_target = count;
-    g_opm_dev.meas_sample_us = us;
+    g_opm_dev.meas_target = eff;
+    g_opm_dev.meas_sample_us = 100000U; /* 固定 100ms */
     g_opm_dev.meas_done = 0;
+    adc_capture_start(eff);
     return build_status_ok(resp, cap, OPM_CMD_STMP);
 }
 
-/* 21) STMT 启动外部连续触发单次量测（高速版本） */
+/* 21) STMT 启动外部连续触发单次量测（高速版本）
+ * 未实现：当前硬件未预留外部触发通道，返回解析错误。 */
 static uint16_t h_stmt(const OpmFrame *req, uint8_t *resp, uint16_t cap)
 {
-    if (req->data_len != 9U)
-    {
-        return 0;
-    }
-    /* data: [触发方式(1)][触发次数(4)][采样时间(4)] */
-    uint32_t count = opm_rd_u32le(&req->data[1]);
-    uint32_t us = opm_rd_u32le(&req->data[5]);
-    if (count < 1U || count > 1000000U || us < 50U)
-    {
-        return 0;
-    }
-    g_opm_dev.meas_mode = OPM_MEAS_TRIG_SINGLE;
-    g_opm_dev.meas_target = count;
-    g_opm_dev.meas_sample_us = us;
-    g_opm_dev.meas_done = 0;
-    return build_status_ok(resp, cap, OPM_CMD_STMT);
+    (void)req;
+    (void)resp;
+    (void)cap;
+    return 0;
 }
 
-/* 22) STST 启动外部单次触发多次量测（高速版本） */
+/* 22) STST 启动外部单次触发多次量测（高速版本）
+ * 未实现：当前硬件未预留外部触发通道，返回解析错误。 */
 static uint16_t h_stst(const OpmFrame *req, uint8_t *resp, uint16_t cap)
 {
-    if (req->data_len != 9U)
-    {
-        return 0;
-    }
-    /* data: [触发方式(1)][测量次数(4)][采样时间(4)] */
-    uint32_t count = opm_rd_u32le(&req->data[1]);
-    uint32_t us = opm_rd_u32le(&req->data[5]);
-    if (count < 1U || count > 1000000U || us < 50U)
-    {
-        return 0;
-    }
-    g_opm_dev.meas_mode = OPM_MEAS_TRIG_MULTI;
-    g_opm_dev.meas_target = count;
-    g_opm_dev.meas_sample_us = us;
-    g_opm_dev.meas_done = 0;
-    return build_status_ok(resp, cap, OPM_CMD_STST);
+    (void)req;
+    (void)resp;
+    (void)cap;
+    return 0;
 }
 
 /* 23) STSM 停止光功率连续量测（高速版本） */
 static uint16_t h_stsm(const OpmFrame *req, uint8_t *resp, uint16_t cap)
 {
     (void)req;
+    adc_capture_stop();
     g_opm_dev.meas_mode = OPM_MEAS_NORMAL;
     return build_status_ok(resp, cap, OPM_CMD_STSM);
 }
@@ -613,14 +613,13 @@ static uint16_t h_rdfc(const OpmFrame *req, uint8_t *resp, uint16_t cap)
 {
     (void)req;
     uint8_t d[4];
-    opm_wr_u32le(d, g_opm_dev.meas_done);
+    opm_wr_u32le(d, adc_capture_get_done());
     return opm_frame_build(resp, cap, OPM_CMD_RDFC, d, 4U);
 }
 
 /* 25) RDMR 读取光功率连续测量结果（高速版本）
- * 说明：连续测量的采样缓冲尚未实现（需高速采集环形缓冲配合），
- * 这里先返回结构正确、数据长度受帧上限约束的应答（功率填当前值占位）。
- * TODO: 接入真正的连续采集缓冲后按 start/len 取历史数据。 */
+ * data: [通道(1)][01(1)][起始点(4)][点数(4)]。按 start/len 从连续采样缓冲取历史 dBmA。
+ * 一帧最多回传若干点(受帧上限约束)，上位机可分批读。 */
 static uint16_t h_rdmr(const OpmFrame *req, uint8_t *resp, uint16_t cap)
 {
     if (req->data_len != 10U)
@@ -636,13 +635,21 @@ static uint16_t h_rdmr(const OpmFrame *req, uint8_t *resp, uint16_t cap)
         return 0;
     }
 
-    /* 受单帧缓冲上限约束：附加数据 = 2+4+4 + 4*datalen，需 <= cap-8 */
+    /* 单帧上限：附加数据 = 2+4+4 + 4*datalen，需 <= cap 与本地组包缓冲 d[] 两者。 */
     uint16_t head = 2U + 4U + 4U;
-    uint32_t max_pts = (cap > (OPM_OVERHEAD + head)) ? ((cap - OPM_OVERHEAD - head) / 4U) : 0U;
-    if (datalen > max_pts)
+    uint32_t max_by_cap = (cap > (OPM_OVERHEAD + head)) ? ((cap - OPM_OVERHEAD - head) / 4U) : 0U;
+    uint32_t max_by_buf = (OPM_MAX_FRAME_LEN - head) / 4U;
+    if (datalen > max_by_cap)
     {
-        datalen = max_pts;
+        datalen = max_by_cap;
     }
+    if (datalen > max_by_buf)
+    {
+        datalen = max_by_buf;
+    }
+
+    float pts[(OPM_MAX_FRAME_LEN - 10U) / 4U];
+    uint32_t got = adc_capture_read((uint8_t)(ch - 1U), start, pts, datalen);
 
     uint8_t d[OPM_MAX_FRAME_LEN];
     uint16_t n = 0;
@@ -650,11 +657,11 @@ static uint16_t h_rdmr(const OpmFrame *req, uint8_t *resp, uint16_t cap)
     d[n++] = sub;
     opm_wr_u32le(&d[n], start);
     n += 4U;
-    opm_wr_u32le(&d[n], datalen);
+    opm_wr_u32le(&d[n], got);
     n += 4U;
-    for (uint32_t i = 0; i < datalen; i++)
+    for (uint32_t i = 0; i < got; i++)
     {
-        opm_wr_f32le(&d[n], get_power_dbm((uint8_t)(ch - 1U)));
+        opm_wr_f32le(&d[n], pts[i]);
         n += 4U;
     }
     return opm_frame_build(resp, cap, OPM_CMD_RDMR, d, n);
