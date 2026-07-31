@@ -90,6 +90,29 @@ extern "C"
      */
     bool ch9121_ensure_baudrate(UART_HandleTypeDef *huart, uint32_t baud);
 
+    /**
+     * @brief 确保 CH9121 已配置为确定的 TCP 服务端（建议开机调用一次）。
+     *
+     *  进配置模式(固定 9600) → 先用 0x60 读工作模式、0x61 读芯片IP：
+     *    - 模式已是 TCP 服务端且 IP 匹配：不动 EEPROM，仅退出（避免写损耗）；
+     *    - 否则依次写：0x10 模式=TCP服务端 → 0x11 IP → 0x12 子网掩码
+     *      → 0x13 网关 → 0x14 本地端口 → 0x0D 保存 → 0x0E 复位生效。
+     *  每条命令芯片回 0xAA 应答。返回前 STM32 侧 huart 已切回 normal_baud。
+     *
+     *  ⚠ 需在启动该 huart 的 DMA 接收之前调用（内部会 HAL_UART_Init 重配）。
+     *
+     * @param huart        CH9121 所接串口句柄（UART3）
+     * @param normal_baud  透传波特率，配置完成后用于恢复
+     * @param ip           4 字节本机 IP
+     * @param subnet       4 字节子网掩码
+     * @param gateway      4 字节网关
+     * @param port         本地(监听)端口
+     * @return true = 已是目标配置或已成功写入；false = 芯片无应答/写入失败。
+     */
+    bool ch9121_ensure_tcp_server(UART_HandleTypeDef *huart, uint32_t normal_baud,
+                                  const uint8_t ip[4], const uint8_t subnet[4],
+                                  const uint8_t gateway[4], uint16_t port);
+
 #ifdef __cplusplus
 }
 #endif

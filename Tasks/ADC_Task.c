@@ -36,7 +36,9 @@ static const osThreadAttr_t s_adc_task_attr = {
 /*  连续测量(高速版本) 采样引擎                                       */
 /*  粒度固定 100ms：每 25 个 4ms 原始码均值合成 1 个点(先平均后换算)。 */
 /* ================================================================ */
-static float s_cap_buf[ADC_CAP_MAX_COUNT][ADC_CHANNEL_COUNT]; /* SRAM1，57.6KB */
+/* 放到 CCM(0x10000000，64KB)：仅 CPU 访问、无 DMA，释放主 SRAM。 */
+static float s_cap_buf[ADC_CAP_MAX_COUNT][ADC_CHANNEL_COUNT]
+    __attribute__((section(".ccmram"), zero_init)); /* CCM，57.6KB */
 static volatile uint8_t s_cap_active;
 static volatile uint32_t s_cap_target;
 static volatile uint32_t s_cap_done;

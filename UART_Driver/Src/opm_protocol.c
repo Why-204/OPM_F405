@@ -50,7 +50,7 @@ void opm_device_state_init(void)
     d->mac[0] = 0xAA; d->mac[1] = 0xBB; d->mac[2] = 0xCC;
     d->mac[3] = 0xDD; d->mac[4] = 0xEE; d->mac[5] = 0xFF;
 
-    d->ip[0] = 10; d->ip[1] = 0; d->ip[2] = 0; d->ip[3] = 10;
+    d->ip[0] = 192; d->ip[1] = 168; d->ip[2] = 1; d->ip[3] = 200;
     d->port = 8888;
 
     d->channel_count = (ADC_CHANNEL_COUNT <= OPM_MAX_CHANNELS)

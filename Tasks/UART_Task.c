@@ -66,6 +66,24 @@ static void opm_channel_task(void *arg)
     OpmFrame req;
     uint8_t resp[OPM_MAX_FRAME_LEN];
 
+    /* CH9121 一次性配置(仅 UART3 网口通道)：放在调度器启动后执行，
+     * 避免其阻塞式 HAL_Delay/串口收发在 osKernelStart 前拖住整机启动，
+     * 导致 HMI 等任务起不来。 */
+    if (ch == &g_opm_ch_uart3)
+    {
+        /* 网络参数固定为确定的 TCP 服务端，便于上位机直连验证。
+         * IP/子网/网关须同网段自洽；IP/端口取 g_opm_dev（与 RDIP/RDPT 上报值一致）。 */
+        static const uint8_t netcfg_subnet[4] = {255U, 255U, 255U, 0U};
+        static const uint8_t netcfg_gateway[4] = {192U, 168U, 1U, 1U};
+        ch9121_init();
+        (void)ch9121_ensure_tcp_server(ch->huart, ch->huart->Init.BaudRate,
+                                       g_opm_dev.ip, netcfg_subnet,
+                                       netcfg_gateway, g_opm_dev.port);
+    }
+
+    /* 在本任务内武装循环 DMA 接收(必须在 CH9121 重配 UART3 之后) */
+    opm_channel_start(ch);
+
     for (;;)
     {
         /* 等 ISR 通知有新数据（也周期性醒来兜底处理残留帧） */
@@ -132,19 +150,11 @@ void opm_task_init(void)
         s_dev_mutex = osMutexNew(&s_dev_mutex_attr);
     }
 
-    /* 2) CH9121（UART3 走网口透传）：置正常透传模式并硬复位 */
-    ch9121_init();
-
-    /* 2.1) 确保 CH9121 端口1 透传波特率与 UART3 一致：读回比对，
-     *      不一致才写入并复位（一致则不动 EEPROM）。必须在启动 UART3
-     *      DMA 接收之前调用（内部会 HAL_UART_Init 临时切到 9600 配置口）。 */
-    (void)ch9121_ensure_baudrate(&huart3, huart3.Init.BaudRate);
-
-    /* 3) 初始化两个通道实例 */
+    /* 2) 初始化两个通道实例 */
     opm_channel_init(&g_opm_ch_uart3, &huart3, "UART3");
     opm_channel_init(&g_opm_ch_uart5, &huart5, "UART5");
 
-    /* 4) 创建两个接收任务 */
+    /* 3) 创建两个接收任务 */
     if (s_uart3_thread == NULL)
     {
         s_uart3_thread = osThreadNew(opm_channel_task, &g_opm_ch_uart3, &s_uart3_attr);
@@ -154,9 +164,10 @@ void opm_task_init(void)
         s_uart5_thread = osThreadNew(opm_channel_task, &g_opm_ch_uart5, &s_uart5_attr);
     }
 
-    /* 5) 绑定任务句柄（ISR 据此发标志），再启动循环 DMA 接收 */
+    /* 4) 绑定任务句柄(ISR 据此发标志)。
+     *    CH9121 配置与循环 DMA 接收的启动改到各自任务内执行(见 opm_channel_task)，
+     *    使 opm_task_init 保持非阻塞，保证 osKernelStart 能立即运行、
+     *    其余任务(含 HMI)正常启动。 */
     opm_channel_bind_task(&g_opm_ch_uart3, s_uart3_thread);
     opm_channel_bind_task(&g_opm_ch_uart5, s_uart5_thread);
-    opm_channel_start(&g_opm_ch_uart3);
-    opm_channel_start(&g_opm_ch_uart5);
 }
