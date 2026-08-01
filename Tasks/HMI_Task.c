@@ -9,6 +9,7 @@
 
 #include "HMI_Task.h"
 #include "ADC_Task.h"
+#include "opm_protocol.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -216,8 +217,8 @@ void hmi_control_task(void *arg)
         {
             for (uint8_t i = 0U; i < hmi_num_ch && i < ADC_CHANNEL_COUNT; i++)
             {
-                /* dBmA 由 ADC 任务在数据源头计算，这里仅读取 */
-                hmi_ch[i].raw_power = adc_ch[i].dBmA;
+                /* dBm = dBmA - 当前工作波长偏置 */
+                hmi_ch[i].raw_power = opm_get_power_dbm(i);
             }
             hmi_refresh_all();
             g_next_refresh = osKernelSysTick() + REFRESH_TICKS;
@@ -466,7 +467,7 @@ static void hmi_refresh_channel(uint8_t idx)
     /* Power unit */
     if (hmi_ch[idx].unit == 0U)
     {
-        SetTextValue(scr, punit_id, (uchar *)"dBmA");
+        SetTextValue(scr, punit_id, (uchar *)"dBm");
     }
     else
     {

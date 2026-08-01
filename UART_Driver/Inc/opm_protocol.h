@@ -225,6 +225,17 @@ extern "C"
     uint16_t opm_dispatch(const OpmFrame *req, uint8_t *resp_buf, uint16_t resp_cap);
 
     /**
+     * @brief 将某通道的原始 dBmA 按当前工作波长偏置换算为 dBm。
+     *        标定波长端点使用端点偏置，端点之间线性插值，范围外返回原始 dBmA。
+     */
+    float opm_apply_power_offset_dbm(uint8_t ch_index, float dbma);
+
+    /**
+     * @brief 读取某通道当前光功率(dBm)，即 adc_ch[ch].dBmA 减当前波长偏置。
+     */
+    float opm_get_power_dbm(uint8_t ch_index);
+
+    /**
      * @brief 初始化设备状态默认值（产品名/序列号/IP/端口/波长表等）。
      */
     void opm_device_state_init(void);

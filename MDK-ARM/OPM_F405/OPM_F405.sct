@@ -4,8 +4,8 @@
 ; ***       本文件不再由 uVision 自动生成/覆盖。              ***
 ; *************************************************************
 
-LR_IROM1 0x08000000 0x00100000  {    ; load region size_region
-  ER_IROM1 0x08000000 0x00100000  {  ; load address = execution address
+LR_IROM1 0x08000000 0x000E0000  {    ; reserve sector 11 (0x080E0000-0x080FFFFF) for OPM storage
+  ER_IROM1 0x08000000 0x000E0000  {  ; load address = execution address
    *.o (RESET, +First)
    *(InRoot$$Sections)
    .ANY (+RO)

@@ -3,11 +3,12 @@
  * @brief   多通道光功率计通信协议实现：校验、拆/组包、26 条命令分发。
  *          见 opm_protocol.h 帧格式说明。本 MCU 为下位机（被动应答）。
  *
- *  光功率(dBm)取自 ADC_Task 的 adc_ch[i].dBmA。
+ *  光功率(dBm)由 ADC_Task 的 adc_ch[i].dBmA 减当前波长偏置得到。
  *  并发保护由调用方(task 层)负责。
  */
 
 #include "opm_protocol.h"
+#include "opm_storage.h"
 #include "ADC_Task.h"
 #include "ADC_Unpack.h"
 
@@ -72,6 +73,7 @@ void opm_device_state_init(void)
     }
 
     d->meas_mode = OPM_MEAS_NORMAL;
+    (void)opm_storage_load(d);
 }
 
 /* ================================================================ */
@@ -181,38 +183,71 @@ static bool channel_valid(uint8_t ch)
     return (ch == 0U) || (ch <= g_opm_dev.channel_count);
 }
 
-/* 读取某通道光功率(dBm)，来自 ADC_Task。
+/* 读取某通道在指定波长下的偏置(dB)。
+ * 标定范围外偏置为 0；端点使用端点偏置；两个标定波长之间线性插值。 */
+static float get_offset_db(uint8_t ch_index, uint16_t wl)
+{
+    if (ch_index >= g_opm_dev.channel_count || ch_index >= OPM_MAX_CHANNELS ||
+        g_opm_dev.cal_wl_count == 0U)
+    {
+        return 0.0f;
+    }
+
+    uint8_t last = (uint8_t)(g_opm_dev.cal_wl_count - 1U);
+    if (wl < g_opm_dev.cal_wl[0] || wl > g_opm_dev.cal_wl[last])
+    {
+        return 0.0f;
+    }
+
+    for (uint8_t i = 0; i < last; i++)
+    {
+        uint16_t wl0 = g_opm_dev.cal_wl[i];
+        uint16_t wl1 = g_opm_dev.cal_wl[i + 1U];
+
+        if (wl == wl0)
+        {
+            return g_opm_dev.offset_db[ch_index][i];
+        }
+        if (wl > wl0 && wl <= wl1)
+        {
+            float off0 = g_opm_dev.offset_db[ch_index][i];
+            float off1 = g_opm_dev.offset_db[ch_index][i + 1U];
+            float t = (float)(wl - wl0) / (float)(wl1 - wl0);
+            return off0 + (off1 - off0) * t;
+        }
+    }
+
+    return g_opm_dev.offset_db[ch_index][last];
+}
+
+/* 将某通道 dBmA 换算为光功率 dBm。
  *
  * 探测器测得的是电流(dBmA)，与光功率(dBm)之间是随波长变化的响应度换算：
  *   电流 = 响应度(λ) × 光功率  →  对数域退化为按波长减一个常数偏移量
  *   光功率(dBm) = 测量值(dBmA) − offset(当前工作波长)
  * offset 由出厂标定通过 WRPO 写入 g_opm_dev.offset_db[通道][标定波长下标]。
- * 这里用该通道当前工作波长 work_wl(nm) 在标定波长表 cal_wl[] 中查下标，
- * 找到则减去对应偏移量；未标定该波长则不减(返回原始 dBmA)。
+ * 这里用该通道当前工作波长 work_wl(nm) 在标定波长表 cal_wl[] 中做线性插值；
+ * 标定范围外不减偏置(返回原始 dBmA)。
  */
-static float get_power_dbm(uint8_t ch_index)
+float opm_apply_power_offset_dbm(uint8_t ch_index, float dbma)
+{
+    if (ch_index >= g_opm_dev.channel_count || ch_index >= OPM_MAX_CHANNELS)
+    {
+        return dbma;
+    }
+
+    uint16_t wl = g_opm_dev.work_wl[ch_index];
+    return dbma - get_offset_db(ch_index, wl);
+}
+
+float opm_get_power_dbm(uint8_t ch_index)
 {
     if (ch_index >= (uint8_t)ADC_CHANNEL_COUNT)
     {
         return 0.0f;
     }
 
-    float raw = adc_ch[ch_index].dBmA;
-
-    if (ch_index >= g_opm_dev.channel_count)
-    {
-        return raw;
-    }
-
-    uint16_t wl = g_opm_dev.work_wl[ch_index];
-    for (uint8_t i = 0; i < g_opm_dev.cal_wl_count; i++)
-    {
-        if (g_opm_dev.cal_wl[i] == wl)
-        {
-            return raw - g_opm_dev.offset_db[ch_index][i];
-        }
-    }
-    return raw;
+    return opm_apply_power_offset_dbm(ch_index, adc_ch[ch_index].dBmA);
 }
 
 /* ================================================================ */
@@ -439,13 +474,13 @@ static uint16_t h_rdpr(const OpmFrame *req, uint8_t *resp, uint16_t cap)
     {
         for (uint8_t i = 0; i < g_opm_dev.channel_count; i++)
         {
-            opm_wr_f32le(&d[n], get_power_dbm(i));
+            opm_wr_f32le(&d[n], opm_get_power_dbm(i));
             n += 4U;
         }
     }
     else
     {
-        opm_wr_f32le(&d[n], get_power_dbm((uint8_t)(ch - 1U)));
+        opm_wr_f32le(&d[n], opm_get_power_dbm((uint8_t)(ch - 1U)));
         n += 4U;
     }
     return opm_frame_build(resp, cap, OPM_CMD_RDPR, d, n);
@@ -487,6 +522,11 @@ static uint16_t h_wrpo(const OpmFrame *req, uint8_t *resp, uint16_t cap)
             return 0;
         }
         g_opm_dev.offset_db[ch - 1U][wl_idx - 1U] = opm_rd_f32le(off);
+    }
+
+    if (!opm_storage_save(&g_opm_dev))
+    {
+        return 0;
     }
     return build_status_ok(resp, cap, OPM_CMD_WRPO);
 }
@@ -618,7 +658,8 @@ static uint16_t h_rdfc(const OpmFrame *req, uint8_t *resp, uint16_t cap)
 }
 
 /* 25) RDMR 读取光功率连续测量结果（高速版本）
- * data: [通道(1)][01(1)][起始点(4)][点数(4)]。按 start/len 从连续采样缓冲取历史 dBmA。
+ * data: [通道(1)][01(1)][起始点(4)][点数(4)]。按 start/len 从连续采样缓冲取历史 dBmA，
+ * 回传前按该通道当前工作波长减偏置，输出 dBm。
  * 一帧最多回传若干点(受帧上限约束)，上位机可分批读。 */
 static uint16_t h_rdmr(const OpmFrame *req, uint8_t *resp, uint16_t cap)
 {
@@ -661,7 +702,7 @@ static uint16_t h_rdmr(const OpmFrame *req, uint8_t *resp, uint16_t cap)
     n += 4U;
     for (uint32_t i = 0; i < got; i++)
     {
-        opm_wr_f32le(&d[n], pts[i]);
+        opm_wr_f32le(&d[n], opm_apply_power_offset_dbm((uint8_t)(ch - 1U), pts[i]));
         n += 4U;
     }
     return opm_frame_build(resp, cap, OPM_CMD_RDMR, d, n);

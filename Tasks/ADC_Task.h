@@ -35,8 +35,8 @@ void adc_task_init(void);
 uint8_t adc_task_get_latest(ADC_FrameData *frame);
 
 /* ===== 连续测量(高速版本) 采样引擎 =====
- * 粒度固定 100ms(=25×4ms)。结果存 dBmA(float)。
- * 引擎在 adc_task 线程(每 4ms)累加，RDMR 在协议任务读取(追加式，读已提交点安全)。 */
+ * 粒度固定 100ms(=25×4ms)。捕获缓冲存 dBmA(float)，
+ * RDMR 在协议任务读取后按当前波长偏置换算为 dBm 回传。 */
 void adc_capture_start(uint32_t count);                                       /* 启动，采集 count 点后自动停 */
 void adc_capture_stop(void);                                                  /* 停止(保留已采数据) */
 uint32_t adc_capture_get_done(void);                                          /* 已完成点数 */

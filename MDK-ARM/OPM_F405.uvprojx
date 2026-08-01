@@ -659,6 +659,11 @@
               <FilePath>..\UART_Driver\Src\opm_channel.c</FilePath>
             </File>
             <File>
+              <FileName>opm_storage.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\UART_Driver\Src\opm_storage.c</FilePath>
+            </File>
+            <File>
               <FileName>ch9121.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\UART_Driver\Src\ch9121.c</FilePath>
