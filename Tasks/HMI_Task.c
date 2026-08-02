@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <float.h>
 #include <stdlib.h>
 
 /* ================================================================ */
@@ -91,6 +92,12 @@ typedef enum
 
 static AppState g_state = ST_STARTUP;
 static uint8_t g_kb_ch;
+typedef enum
+{
+    KB_PURPOSE_WAVELENGTH,
+    KB_PURPOSE_CAL_OFFSET,
+} KeyboardPurpose;
+static KeyboardPurpose g_kb_purpose;
 static bool g_scr_ok; /* screen-change confirmed               */
 
 /* ================================================================ */
@@ -133,8 +140,8 @@ static void hmi_process_events(void);
 static void hmi_handle_keyboard_data(const uint8_t *str, uint8_t len);
 static void hmi_cancel_keyboard(void);
 static void hmi_show_keyboard(uint8_t ch_idx);
+static void hmi_show_calibration_keyboard(uint8_t ch_idx);
 static void hmi_toggle_unit(void);
-static void hmi_do_calibration(void);
 static void hmi_switch_channel(uint8_t new_ch, bool highlight);
 static void hmi_update_channel_highlight(void);
 static void hmi_format_power(char *buf, uint8_t idx);
@@ -434,26 +441,33 @@ static void hmi_refresh_channel(uint8_t idx)
     }
     else
     {
-        /* current mode: value = current_a * gain, scaled into (1, 1000) */
-        float ia = adc_ch[idx].current_a;
+        /* Linear optical power converted from corrected dBm. */
+        float power_w = powf(10.0f, (hmi_ch[idx].raw_power - 30.0f) / 10.0f);
         float gain;
-        if (ia <= 1e-12f)
-            gain = 1e15f; /* fA */
-        else if (ia <= 1e-9f)
-            gain = 1e12f; /* pA */
-        else if (ia <= 1e-6f)
-            gain = 1e9f; /* nA */
-        else if (ia <= 1e-3f)
-            gain = 1e6f; /* uA */
-        else if (ia <= 1.0f)
-            gain = 1e3f; /* mA */
+        if (power_w < 1e-12f)
+            gain = 1e15f; /* fW */
+        else if (power_w < 1e-9f)
+            gain = 1e12f; /* pW */
+        else if (power_w < 1e-6f)
+            gain = 1e9f; /* nW */
+        else if (power_w < 1e-3f)
+            gain = 1e6f; /* uW */
+        else if (power_w < 1.0f)
+            gain = 1e3f; /* mW */
         else
-            gain = 1.0f; /* A  */
+            gain = 1.0f; /* W  */
 
-        float v = ia * gain;
-        uint32_t a = (uint32_t)(v * 10.0f + 0.5f);
-        snprintf(buf, sizeof(buf), "%lu.%01lu",
-                 (unsigned long)(a / 10U), (unsigned long)(a % 10U));
+        if (!(power_w >= 0.0f) || power_w > FLT_MAX)
+        {
+            snprintf(buf, sizeof(buf), "----");
+        }
+        else
+        {
+            float v = power_w * gain;
+            uint32_t a = (uint32_t)(v * 10.0f + 0.5f);
+            snprintf(buf, sizeof(buf), "%lu.%01lu",
+                     (unsigned long)(a / 10U), (unsigned long)(a % 10U));
+        }
         SetTextValue(scr, pwr_id, (uchar *)buf);
         hmi_ch[idx].power_blink = false;
     }
@@ -471,18 +485,19 @@ static void hmi_refresh_channel(uint8_t idx)
     }
     else
     {
-        if (adc_ch[idx].current_a <= 1e-12f)
-            SetTextValue(scr, punit_id, (uchar *)"fA");
-        else if (adc_ch[idx].current_a <= 1e-9f)
-            SetTextValue(scr, punit_id, (uchar *)"pA");
-        else if (adc_ch[idx].current_a <= 1e-6f)
-            SetTextValue(scr, punit_id, (uchar *)"nA");
-        else if (adc_ch[idx].current_a <= 1e-3f)
-            SetTextValue(scr, punit_id, (uchar *)"uA");
-        else if (adc_ch[idx].current_a <= 1.0f)
-            SetTextValue(scr, punit_id, (uchar *)"mA");
+        float power_w = powf(10.0f, (hmi_ch[idx].raw_power - 30.0f) / 10.0f);
+        if (power_w < 1e-12f)
+            SetTextValue(scr, punit_id, (uchar *)"fW");
+        else if (power_w < 1e-9f)
+            SetTextValue(scr, punit_id, (uchar *)"pW");
+        else if (power_w < 1e-6f)
+            SetTextValue(scr, punit_id, (uchar *)"nW");
+        else if (power_w < 1e-3f)
+            SetTextValue(scr, punit_id, (uchar *)"uW");
+        else if (power_w < 1.0f)
+            SetTextValue(scr, punit_id, (uchar *)"mW");
         else
-            SetTextValue(scr, punit_id, (uchar *)"A");
+            SetTextValue(scr, punit_id, (uchar *)"W");
     }
 }
 
@@ -554,7 +569,7 @@ static void hmi_process_events(void)
             hmi_toggle_unit();
             break;
         case BTN_CALIBRATION:
-            hmi_do_calibration();
+            hmi_show_calibration_keyboard(hmi_cur_ch);
             break;
         case BTN_LOCAL:
             hmi_mode = (hmi_mode == 0U) ? 1U : 0U;
@@ -597,6 +612,29 @@ static void hmi_show_keyboard(uint8_t ch_idx)
     SetTextBlink(scr, wave_id, BLINK_PERIOD);
     ShowKeyboard(1, KB_X, KB_Y, 0, 0, KB_MAXLEN);
     g_kb_ch = ch_idx;
+    g_kb_purpose = KB_PURPOSE_WAVELENGTH;
+    g_state = ST_KEYBOARD_WAIT;
+}
+
+static void hmi_show_calibration_keyboard(uint8_t ch_idx)
+{
+    uint16_t wl = (uint16_t)((hmi_ch[ch_idx].wavelength + 50UL) / 100UL);
+    if (!opm_has_calibration_wavelength(wl))
+    {
+        uint16_t pwr_id = ch_txt_pwr(ch_idx);
+        SetTextBlink(hmi_cur_screen, pwr_id, BLINK_PERIOD);
+        osDelay(BLINK_PERIOD * 2U);
+        SetTextBlink(hmi_cur_screen, pwr_id, 0U);
+        return;
+    }
+
+    uint8_t scr = hmi_cur_screen;
+    uint16_t pwr_id = ch_txt_pwr(ch_idx);
+
+    SetTextBlink(scr, pwr_id, BLINK_PERIOD);
+    ShowKeyboard(1, KB_X, KB_Y, 0, 0, KB_MAXLEN);
+    g_kb_ch = ch_idx;
+    g_kb_purpose = KB_PURPOSE_CAL_OFFSET;
     g_state = ST_KEYBOARD_WAIT;
 }
 
@@ -604,8 +642,11 @@ static void hmi_handle_keyboard_data(const uint8_t *str, uint8_t len)
 {
     uint8_t scr = hmi_cur_screen;
     uint16_t wave_id = ch_txt_wave(g_kb_ch);
+    uint16_t blink_id = (g_kb_purpose == KB_PURPOSE_CAL_OFFSET)
+                            ? ch_txt_pwr(g_kb_ch)
+                            : wave_id;
 
-    SetTextBlink(scr, wave_id, 0U);
+    SetTextBlink(scr, blink_id, 0U);
     HideKeyboard();
 
     char tmp[10];
@@ -613,23 +654,40 @@ static void hmi_handle_keyboard_data(const uint8_t *str, uint8_t len)
     memcpy(tmp, str, n);
     tmp[n] = '\0';
 
-    char *dot = strchr(tmp, '.');
-    uint32_t ip = 0UL, fp = 0UL;
-    if (dot)
+    if (g_kb_purpose == KB_PURPOSE_CAL_OFFSET)
     {
-        *dot = '\0';
-        ip = (uint32_t)atoi(tmp);
-        fp = (uint32_t)atoi(dot + 1);
-        if (fp > 99UL)
-            fp %= 100UL;
+        char *end = NULL;
+        float delta_db = strtof(tmp, &end);
+        if (end != tmp && *end == '\0')
+        {
+            uint16_t wl = (uint16_t)((hmi_ch[g_kb_ch].wavelength + 50UL) / 100UL);
+            if (opm_adjust_power_offset_db(g_kb_ch, wl, delta_db))
+                hmi_ch[g_kb_ch].raw_power = opm_get_power_dbm(g_kb_ch);
+        }
     }
     else
     {
-        ip = (uint32_t)atoi(tmp);
+        char *dot = strchr(tmp, '.');
+        uint32_t ip = 0UL, fp = 0UL;
+        if (dot)
+        {
+            *dot = '\0';
+            ip = (uint32_t)atoi(tmp);
+            fp = (uint32_t)atoi(dot + 1);
+            if (fp > 99UL)
+                fp %= 100UL;
+        }
+        else
+        {
+            ip = (uint32_t)atoi(tmp);
+        }
+        uint32_t val = ip * 100UL + fp;
+        if (val > 0UL && val <= 999999UL)
+        {
+            hmi_ch[g_kb_ch].wavelength = val;
+            g_opm_dev.work_wl[g_kb_ch] = (uint16_t)((val + 50UL) / 100UL);
+        }
     }
-    uint32_t val = ip * 100UL + fp;
-    if (val > 0UL && val <= 999999UL)
-        hmi_ch[g_kb_ch].wavelength = val;
 
     hmi_refresh_channel(g_kb_ch);
     g_state = ST_IDLE;
@@ -638,8 +696,10 @@ static void hmi_handle_keyboard_data(const uint8_t *str, uint8_t len)
 static void hmi_cancel_keyboard(void)
 {
     uint8_t scr = hmi_cur_screen;
-    uint16_t wave_id = ch_txt_wave(g_kb_ch);
-    SetTextBlink(scr, wave_id, 0U);
+    uint16_t blink_id = (g_kb_purpose == KB_PURPOSE_CAL_OFFSET)
+                            ? ch_txt_pwr(g_kb_ch)
+                            : ch_txt_wave(g_kb_ch);
+    SetTextBlink(scr, blink_id, 0U);
     HideKeyboard();
     g_state = ST_IDLE;
 }
@@ -652,13 +712,6 @@ static void hmi_cancel_keyboard(void)
 static void hmi_toggle_unit(void)
 {
     hmi_ch[hmi_cur_ch].unit = (hmi_ch[hmi_cur_ch].unit == 0U) ? 1U : 0U;
-    hmi_refresh_channel(hmi_cur_ch);
-}
-
-/** Store current raw power as zero calibration. */
-static void hmi_do_calibration(void)
-{
-    hmi_ch[hmi_cur_ch].zero_cal = hmi_ch[hmi_cur_ch].raw_power;
     hmi_refresh_channel(hmi_cur_ch);
 }
 

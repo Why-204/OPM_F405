@@ -1725,13 +1725,14 @@ void hmi_driver_unpack(HmiRxRingBuf *rxbuf)
         case 0x86:
             /* EE 86 01 [strings...] FF FC FF FF
              * strings = user-entered ASCII, no length prefix */
-            if (frm_len >= 6)
+            if (frm_len >= 7)
             {
                 evt.type = HMI_EVENT_CONTROL_NOTIFY;
                 evt.ctrl_type = 0x86; /* keyboard notification */
                 evt.screen_id = 0;
                 evt.control_id = 0;
-                evt.param_len = (uint8_t)((frm_len - 6 > 31) ? 31 : (frm_len - 6));
+                /* EE 86 01 + text + FF FC FF FF: exclude all 7 framing bytes. */
+                evt.param_len = (uint8_t)((frm_len - 7 > 31) ? 31 : (frm_len - 7));
                 if (evt.param_len > 0)
                     memcpy(evt.param, &frame_buf[3], evt.param_len);
             }

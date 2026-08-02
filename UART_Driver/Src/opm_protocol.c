@@ -8,6 +8,8 @@
  */
 
 #include "opm_protocol.h"
+#include <float.h>
+#include <math.h>
 #include "opm_storage.h"
 #include "ADC_Task.h"
 #include "ADC_Unpack.h"
@@ -34,6 +36,10 @@ bool opm_netcfg_pending(void)
 static const uint16_t k_cal_wl_default[] = {
     850, 980, 1270, 1290, 1295, 1300, 1305, 1310,
     1330, 1490, 1530, 1550, 1570, 1620};
+/* Detector slope K in mA/mW, indexed one-to-one with k_cal_wl_default. */
+static const float k_slope_default[] = {
+    0.20f, 0.70f, 0.92f, 0.945f, 0.95f, 0.955f, 0.96f,
+    0.96f, 0.945f, 0.99f, 1.00f, 1.00f, 0.98f, 0.92f};
 #define K_CAL_WL_DEFAULT_CNT (sizeof(k_cal_wl_default) / sizeof(k_cal_wl_default[0]))
 
 void opm_device_state_init(void)
@@ -220,6 +226,33 @@ static float get_offset_db(uint8_t ch_index, uint16_t wl)
     return g_opm_dev.offset_db[ch_index][last];
 }
 
+/* Return wavelength-dependent detector slope K (mA/mW).
+ * K is linearly interpolated between table entries. Outside the table K=1. */
+static float get_slope_k(uint16_t wl)
+{
+    const uint8_t last = (uint8_t)(K_CAL_WL_DEFAULT_CNT - 1U);
+
+    if (wl < k_cal_wl_default[0] || wl > k_cal_wl_default[last])
+        return 1.0f;
+
+    for (uint8_t i = 0U; i < last; i++)
+    {
+        uint16_t wl0 = k_cal_wl_default[i];
+        uint16_t wl1 = k_cal_wl_default[i + 1U];
+
+        if (wl == wl0)
+            return k_slope_default[i];
+        if (wl > wl0 && wl <= wl1)
+        {
+            float t = (float)(wl - wl0) / (float)(wl1 - wl0);
+            return k_slope_default[i] +
+                   (k_slope_default[i + 1U] - k_slope_default[i]) * t;
+        }
+    }
+
+    return k_slope_default[last];
+}
+
 /* 将某通道 dBmA 换算为光功率 dBm。
  *
  * 探测器测得的是电流(dBmA)，与光功率(dBm)之间是随波长变化的响应度换算：
@@ -237,7 +270,8 @@ float opm_apply_power_offset_dbm(uint8_t ch_index, float dbma)
     }
 
     uint16_t wl = g_opm_dev.work_wl[ch_index];
-    return dbma - get_offset_db(ch_index, wl);
+    float k = get_slope_k(wl);
+    return dbma - 10.0f * log10f(k) - get_offset_db(ch_index, wl);
 }
 
 float opm_get_power_dbm(uint8_t ch_index)
@@ -248,6 +282,44 @@ float opm_get_power_dbm(uint8_t ch_index)
     }
 
     return opm_apply_power_offset_dbm(ch_index, adc_ch[ch_index].dBmA);
+}
+
+bool opm_has_calibration_wavelength(uint16_t wl)
+{
+    for (uint8_t i = 0U; i < g_opm_dev.cal_wl_count; i++)
+    {
+        if (g_opm_dev.cal_wl[i] == wl)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool opm_adjust_power_offset_db(uint8_t ch_index, uint16_t wl, float delta_db)
+{
+    if (ch_index >= g_opm_dev.channel_count || ch_index >= OPM_MAX_CHANNELS ||
+        delta_db != delta_db || delta_db > FLT_MAX || delta_db < -FLT_MAX)
+    {
+        return false;
+    }
+
+    for (uint8_t i = 0U; i < g_opm_dev.cal_wl_count; i++)
+    {
+        if (g_opm_dev.cal_wl[i] == wl)
+        {
+            float old_offset = g_opm_dev.offset_db[ch_index][i];
+            g_opm_dev.offset_db[ch_index][i] = old_offset - delta_db;
+            if (!opm_storage_save(&g_opm_dev))
+            {
+                g_opm_dev.offset_db[ch_index][i] = old_offset;
+                return false;
+            }
+            return true;
+        }
+    }
+
+    return false;
 }
 
 /* ================================================================ */

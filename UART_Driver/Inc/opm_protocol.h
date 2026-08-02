@@ -225,10 +225,12 @@ extern "C"
     uint16_t opm_dispatch(const OpmFrame *req, uint8_t *resp_buf, uint16_t resp_cap);
 
     /**
-     * @brief 将某通道的原始 dBmA 按当前工作波长偏置换算为 dBm。
-     *        标定波长端点使用端点偏置，端点之间线性插值，范围外返回原始 dBmA。
+     * @brief 按 dBm=dBmA-10log10(K)-offset_db 换算某通道光功率。
+     *        K 与 offset_db 均在标定波长间线性插值；范围外 K=1、offset_db=0。
      */
     float opm_apply_power_offset_dbm(uint8_t ch_index, float dbma);
+    bool opm_has_calibration_wavelength(uint16_t wl);
+    bool opm_adjust_power_offset_db(uint8_t ch_index, uint16_t wl, float delta_db);
 
     /**
      * @brief 读取某通道当前光功率(dBm)，即 adc_ch[ch].dBmA 减当前波长偏置。
